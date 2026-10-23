@@ -25,7 +25,9 @@ cd ai-agent-msg-broker
 
 Use an isolated pinned runtime/container rather than upgrading a workstation's global Node. See [container instructions](docs/operations.md#container-review-and-rootless-podman-example).
 
-Already have clients running? Use [broker-only local startup](docs/local-broker-test.md): it prints the URL and private connection-file paths without detecting, launching or changing any CLI session. No global Node upgrade is needed. The separate [two-new-Claude-session lab](docs/local-claude-test.md) is optional and is not needed for broker startup.
+Clients in separate Podman sandboxes? Start with [host HTTPS connectivity only](docs/podman-host-https-test.md), explicit bind/SAN and per-client CA trust. No CLI/session changes.
+
+Already have clients running in the same network namespace? Use [broker-only local startup](docs/local-broker-test.md): it prints the URL and private connection-file paths without detecting, launching or changing any CLI session. No global Node upgrade is needed. The separate [two-new-Claude-session lab](docs/local-claude-test.md) is optional and is not needed for broker startup.
 
 ## Development
 

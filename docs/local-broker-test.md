@@ -1,5 +1,7 @@
 # Start only the broker; keep your existing clients
 
+For clients in separate Podman sandboxes, use [host HTTPS connectivity first](podman-host-https-test.md) instead. This page is only for clients sharing the host network namespace.
+
 This command starts **only the broker**. It does not find or launch Claude, clone
 connectors, create projects, inspect plugins, or restart/attach existing sessions.
 Your already running clients remain under your control.
