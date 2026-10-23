@@ -4,8 +4,8 @@ import { ApiError, TYPES } from './protocol.mjs';
 
 /** Operator-owned verifier file. No plaintext tokens are retained by the broker. */
 export class CredentialStore {
-  constructor({ path, onRevoke = () => {}, clock = Date.now }) {
-    this.path=path;this.onRevoke=onRevoke;this.clock=clock;this.entries=[];this.serial=null;
+  constructor({ path, onRevoke = () => {}, onPolicyChange = () => {}, clock = Date.now }) {
+    this.path=path;this.onRevoke=onRevoke;this.onPolicyChange=onPolicyChange;this.clock=clock;this.entries=[];this.serial=null;
     this.reload();
   }
   reload() {
@@ -33,6 +33,7 @@ export class CredentialStore {
       const active=value.credentials.filter(c=>!c.revoked&&(c.expires_at===undefined||Date.parse(c.expires_at)>this.clock()));
       const revoked=this.entries.filter(c=>!active.some(n=>JSON.stringify(n)===JSON.stringify(c))).map(c=>c.credential_id);
       if(revoked.length)this.onRevoke(revoked);
+      if(JSON.stringify(this.entries)!==JSON.stringify(active))this.onPolicyChange(active);
       this.entries=active;this.serial=raw;this.ready=active.length>0;
     }catch(error){this.ready=false;throw error;}
   }

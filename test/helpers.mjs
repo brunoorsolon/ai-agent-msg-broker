@@ -13,7 +13,7 @@ export function fixture(t,{limits={},...options}={}){
  const path=join(dir,'broker.sqlite'),a=credential(),b=credential('adapter-b'),c=credential('adapter-c',['private']);
  let store=new BrokerStore({path,clock:()=>now,limits,...options});
  const file=join(dir,'credentials.json');const writeCreds=entries=>writeFileSync(file,JSON.stringify({credentials:entries}),{mode:0o600});writeCreds([a.entry,b.entry,c.entry]);
- const auth=new CredentialStore({path:file,clock:()=>now,onRevoke:ids=>store.revoke(ids)});
+ const auth=new CredentialStore({path:file,clock:()=>now,onRevoke:ids=>store.revoke(ids),onPolicyChange:entries=>store.applyAuthorizationPolicies(entries)});
  const f={dir,path,a,b,c,auth,writeCreds,get store(){return store},advance(ms){now+=ms},get now(){return now},restart(){store.close();store=new BrokerStore({path,clock:()=>now,limits,...options});return store;}};
  t.after(()=>{try{store.close()}finally{rmSync(dir,{recursive:true,force:true});}});return f;
 }

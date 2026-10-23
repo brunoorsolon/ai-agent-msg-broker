@@ -53,3 +53,19 @@ test('HTTP lower-case normalization, expiry-independent receipt reads and concis
  f.advance(180001);const status=await f.request(sent.body.status_url,{session:a.client_id});assert.equal(status.status,200);
  const beat=await f.request(`/v1/sessions/${a.client_id}/heartbeat`,{method:'POST',session:a.client_id,body:{}});assert.equal(beat.status,409);assert.equal(beat.body.error.effect,'not_applied');assert.ok(beat.body.error.contract_ref.includes('LeaseEpoch'));
 });
+
+test('operator scope shrink removes former-scope discovery and send access without granting new scopes',async t=>{
+ const f=await httpFixture(t),a=registration(),b=registration();
+ f.a.entry.scopes=['secret'];f.b.entry.scopes=['secret','public'];f.writeCreds([f.a.entry,f.b.entry,f.c.entry]);
+ await f.request('/v1/sessions',{method:'POST',body:a});await f.request('/v1/sessions',{token:f.b.token,method:'POST',body:b});
+ assert.equal((await f.request('/v1/clients')).body.clients.length,2);
+ const sent=await f.request('/v1/messages',{method:'POST',session:a.client_id,key:'before',body:sendBody(b.client_id)});assert.equal(sent.status,202);
+ f.b.entry.scopes=['public'];f.writeCreds([f.a.entry,f.b.entry,f.c.entry]);
+ const listing=await f.request('/v1/clients?connected=false');assert.equal(listing.body.clients.length,1);assert.equal(listing.body.clients[0].client_id,a.client_id);
+ assert.equal((await f.request('/v1/messages',{method:'POST',session:a.client_id,key:'after',body:sendBody(b.client_id)})).status,404);
+ assert.equal((await f.request(sent.body.status_url,{session:a.client_id})).status,200);
+ assert.equal((await f.request(sent.body.status_url,{token:f.b.token,session:b.client_id})).status,404);
+ const state=await f.request(`/v1/sessions/${b.client_id}`,{token:f.b.token});assert.equal(state.status,200);assert.equal(state.body.connected,false);
+ const reconnected=await f.request('/v1/sessions',{token:f.b.token,method:'POST',body:{...b,previous_epoch:1,connection_id:uuid()}});assert.equal(reconnected.status,200);
+ assert.equal((await f.request('/v1/clients?connected=false')).body.clients.length,1);
+});

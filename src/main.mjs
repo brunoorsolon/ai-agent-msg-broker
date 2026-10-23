@@ -13,8 +13,8 @@ try{
   if(Object.keys(config).some(k=>!allowed.includes(k)))throw new Error('Unknown broker configuration field.');
   if(typeof config.database!=='string'||typeof config.credential_file!=='string')throw new Error('Database and credential_file are required.');
   store=new BrokerStore({path:config.database,limits:config.limits});
-  const auth=new CredentialStore({path:config.credential_file,onRevoke:ids=>store.revoke(ids)});
-  app=createBrokerServer({store,auth,host:config.host,port:config.port,insecureDevelopment:config.insecure_development,proxyLoopback:config.proxy_loopback,tls:config.tls});
+  const auth=new CredentialStore({path:config.credential_file,onRevoke:ids=>store.revoke(ids),onPolicyChange:entries=>store.applyAuthorizationPolicies(entries)});
+  app=createBrokerServer({store,auth,host:config.host,port:config.port,insecureDevelopment:config.insecure_development,proxyLoopback:config.proxy_loopback,tls:config.tls,maxPolls:store.limits.max_polls,requestRate:store.limits.request_per_minute});
   await app.listen();console.error('Broker ready. Delivery receipts confirm durable adapter inbox receipt only.');
   let closing=false;const stop=async()=>{if(closing)return;closing=true;await app.close();store.close();};
   process.on('SIGINT',()=>stop().catch(()=>process.exitCode=1));process.on('SIGTERM',()=>stop().catch(()=>process.exitCode=1));

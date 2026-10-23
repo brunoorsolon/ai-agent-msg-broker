@@ -16,14 +16,23 @@ export class BrokerStore {
     this.clock = clock;
     this.fault = fault;
     this.limits = { ...DEFAULTS, min_free_bytes: 64 * 1024 * 1024, max_disk_bytes: 1024 * 1024 * 1024,
-      principal_send_per_minute: 600, principal_send_burst: 100, global_send_per_minute: 6000, global_send_burst: 1000, ...limits };
+      principal_send_per_minute: 600, principal_send_burst: 100, global_send_per_minute: 6000, global_send_burst: 1000, max_polls: 1000, request_per_minute: 1200, ...limits };
+    const allowedLimits=new Set([...Object.keys(DEFAULTS),'min_free_bytes','max_disk_bytes','principal_send_per_minute','principal_send_burst','global_send_per_minute','global_send_burst','max_polls','request_per_minute']);
+    if(Object.keys(limits).some(k=>!allowedLimits.has(k)))throw new Error('Unknown configured limit.');
     for (const [key, value] of Object.entries(this.limits)) {
       if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Invalid finite limit: ${key}`);
     }
     if (this.limits.lease_seconds < 3 * this.limits.heartbeat_seconds) throw new Error('Lease must cover three heartbeat intervals.');
+    const l=this.limits;
+    if(l.retention_seconds<DEFAULTS.retention_seconds||l.registration_retention_seconds<DEFAULTS.registration_retention_seconds)throw new Error('Retention cannot be shorter than the v1 minimum.');
+    if(l.min_ttl_seconds<60||l.max_ttl_seconds>604800||l.default_ttl_seconds<l.min_ttl_seconds||l.default_ttl_seconds>l.max_ttl_seconds||l.max_wait_seconds>30||l.max_message_bytes>65536||l.max_request_bytes>98304)throw new Error('Configured limits exceed the v1 wire bounds.');
+
     this.path = resolve(path);
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     if (realpathSync(dirname(this.path)) !== dirname(this.path)) throw new Error('Database directory must not use symlinks.');
+    const directory=statSync(dirname(this.path));
+    if((directory.mode&0o077)!==0||(process.getuid&&![process.getuid(),0].includes(directory.uid)))throw new Error('Database directory must be private and operator-owned.');
+
     for (const file of [this.path, `${this.path}.owner`]) {
       try { if (lstatSync(file).isSymbolicLink()) throw new Error('Database must not be a symlink.'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     }
@@ -57,7 +66,7 @@ export class BrokerStore {
   }
   migrate() {
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 1) throw new Error('Unsupported database schema version.');
+    if (version > 2) throw new Error('Unsupported database schema version.');
     this.db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, principal TEXT NOT NULL, adapter TEXT NOT NULL, instance TEXT NOT NULL,
@@ -72,7 +81,7 @@ export class BrokerStore {
         id TEXT PRIMARY KEY, sender TEXT NOT NULL, recipient TEXT NOT NULL, scope TEXT NOT NULL,
         sequence INTEGER NOT NULL, envelope TEXT, bytes INTEGER NOT NULL, state TEXT NOT NULL,
         accepted INTEGER NOT NULL, expires INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-        reason TEXT, uncertain INTEGER NOT NULL DEFAULT 0, claim_id TEXT, claim_epoch INTEGER, claim_until INTEGER,
+        reason TEXT, uncertain INTEGER NOT NULL DEFAULT 0, claim_prior_uncertain INTEGER NOT NULL DEFAULT 0, claim_id TEXT, claim_epoch INTEGER, claim_until INTEGER,
         claimed_at INTEGER, delivered_at INTEGER, terminal_at INTEGER, UNIQUE(recipient,sequence));
       CREATE INDEX IF NOT EXISTS mailbox ON messages(recipient,state,sequence);
       CREATE INDEX IF NOT EXISTS retention ON messages(terminal_at);
@@ -87,7 +96,12 @@ export class BrokerStore {
         claim TEXT PRIMARY KEY, client TEXT NOT NULL, epoch INTEGER NOT NULL, message TEXT NOT NULL,
         request TEXT NOT NULL, result TEXT NOT NULL, created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS rates (id TEXT PRIMARY KEY, tokens REAL NOT NULL, updated INTEGER NOT NULL);
-      PRAGMA user_version=1; COMMIT;`);
+      COMMIT;`);
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      if(!this.db.prepare('PRAGMA table_info(messages)').all().some(c=>c.name==='claim_prior_uncertain'))this.db.exec('ALTER TABLE messages ADD COLUMN claim_prior_uncertain INTEGER NOT NULL DEFAULT 0');
+      this.db.exec('PRAGMA user_version=2; COMMIT');
+    }catch(e){this.db.exec('ROLLBACK');throw e;}
   }
   tx(fn) {
     if (!this.safe()) fail(503, 'storage_unavailable', null, { retryable: true });
@@ -103,23 +117,23 @@ export class BrokerStore {
       this.fault('after_commit');
       return result;
     } catch (error) {
-      if (!committed) { try { this.db.exec('ROLLBACK'); rollbackConfirmed = true; } catch {} }
+      if (!committed) { try { this.fault('before_rollback'); this.db.exec('ROLLBACK'); rollbackConfirmed = true; } catch { this.poisoned = true; } }
       if (error instanceof ApiError) throw error;
-      throw new ApiError(503, 'storage_unavailable', null, { retryable: true, effect: committed || (commitAttempted && !rollbackConfirmed) ? 'unknown' : 'not_applied' });
+      throw new ApiError(503, 'storage_unavailable', null, { retryable: true, effect: committed || !rollbackConfirmed ? 'unknown' : 'not_applied' });
     }
   }
-  safe() { try { return !this.closed && this.diskCheck(); } catch { return false; } }
+  safe() { try { return !this.closed && !this.poisoned && this.diskCheck(); } catch { return false; } }
   close() { if (this.closed) return; this.closed = true; this.db.close(); this.owner.close(); }
   async backup(destination) { await backup(this.db, destination); chmodSync(destination, 0o600); }
   policy() { const l = this.limits; return { heartbeat_interval_seconds: l.heartbeat_seconds, lease_seconds: l.lease_seconds, claim_seconds: l.claim_seconds, retention_seconds: l.retention_seconds, registration_retry_seconds: l.registration_retention_seconds, send_retry_seconds: l.retry_window_seconds }; }
   own(auth, id) {
     const s = this.db.prepare('SELECT * FROM sessions WHERE id=?').get(id);
-    if (!s || s.principal !== auth.principal_id || s.adapter !== auth.adapter_id) fail(404, 'recipient_not_found', 'headers.X-Client-ID');
-    if (!intersects(parse(s.scopes), auth.scopes)) fail(403, 'forbidden');
+    if (!s || s.principal !== auth.principal_id || s.adapter !== auth.adapter_id || !auth.client_types.includes(s.type)) fail(404, 'recipient_not_found', 'headers.X-Client-ID');
     return s;
   }
   live(auth, id, epoch) {
     const s = this.own(auth, id);
+    if (!intersects(parse(s.scopes), auth.scopes)) fail(403, 'forbidden');
     if (s.closed) fail(410, 'session_closed');
     if (!Number.isSafeInteger(epoch) || s.epoch !== epoch || s.lease_until <= this.clock()) fail(409, 'stale_lease_epoch', 'headers.X-Lease-Epoch');
     return s;
@@ -184,6 +198,16 @@ export class BrokerStore {
     if (!credentials.length) return;
     this.tx(()=>{for(const id of credentials) this.db.prepare('UPDATE sessions SET lease_until=0 WHERE credential=?').run(id);});
   }
+  applyAuthorizationPolicies(entries) {
+    this.tx(()=>{
+      for(const s of this.db.prepare('SELECT id,principal,adapter,type,scopes FROM sessions').all()){
+        const active=entries.filter(c=>c.principal_id===s.principal&&c.adapter_id===s.adapter&&c.client_types.includes(s.type));
+        // Policy reload may remove access, but never silently grants a session new scopes.
+        const scopes=parse(s.scopes).filter(scope=>active.some(c=>c.scopes.includes(scope)));
+        if(canonical(scopes)!==s.scopes)this.db.prepare('UPDATE sessions SET scopes=?,lease_until=0 WHERE id=?').run(canonical(scopes),s.id);
+      }
+    });
+  }
   list(auth, query={}) {
     const allowed=['connected','client_type','name','project','cursor','limit'];
     if(Object.keys(query).some(k=>!allowed.includes(k))) fail(400,'invalid_request','query');
@@ -245,8 +269,12 @@ export class BrokerStore {
   receipt(auth,client,id) {
     this.own(auth,client);
     this.sweep();
-    const m=this.db.prepare('SELECT * FROM messages WHERE id=?').get(id);
+    let m=this.db.prepare('SELECT * FROM messages WHERE id=?').get(id);
     if(!m||![m.sender,m.recipient].includes(client)||!auth.scopes.includes(m.scope)) fail(404,'message_not_found');
+    if(!terminal(m.state)&&m.expires<=this.clock()){
+      this.tx(()=>this.db.prepare("UPDATE messages SET state='expired',reason='ttl_expired',terminal_at=? WHERE id=?").run(this.clock(),id));
+      m=this.db.prepare('SELECT * FROM messages WHERE id=?').get(id);
+    }
     return this.receiptRow(m);
   }
   sweepInternal(batch=100) {
@@ -273,20 +301,20 @@ export class BrokerStore {
         if(!m||m.claim_id!==result.claim_id||m.claim_epoch!==epoch||m.state!=='claimed'||m.claim_until<=this.clock()) fail(409,'claim_conflict');
         return result;
       }
+      const empty=()=>{if(finalizeEmpty)this.db.prepare('INSERT INTO claims VALUES(?,?,?,?,NULL,?)').run(id,epoch,key,request,this.clock());return null;};
       const head=this.db.prepare("SELECT * FROM messages WHERE recipient=? AND state IN ('queued','claimed') ORDER BY sequence LIMIT 1").get(id);
       if(head&&!auth.scopes.includes(head.scope)) fail(403,'forbidden');
       if(head&&head.expires<=this.clock()){
         this.db.prepare("UPDATE messages SET state='expired',reason='ttl_expired',terminal_at=? WHERE id=?").run(this.clock(),head.id);
-        return null; // bounded work; next poll advances past this expired head
+        return empty(); // bounded work; next poll advances past this expired head
       }
       if(!head||head.state==='claimed'){
-        if(finalizeEmpty)this.db.prepare('INSERT INTO claims VALUES(?,?,?,?,NULL,?)').run(id,epoch,key,request,this.clock());
-        return null;
+        return empty();
       }
-      if(head.attempts>=this.limits.max_attempts){this.db.prepare("UPDATE messages SET state='failed',reason='attempts_exhausted',terminal_at=? WHERE id=?").run(this.clock(),head.id);return null;}
+      if(head.attempts>=this.limits.max_attempts){this.db.prepare("UPDATE messages SET state='failed',reason='attempts_exhausted',terminal_at=? WHERE id=?").run(this.clock(),head.id);return empty();}
       const now=this.clock(), claimId=randomUUID(), until=Math.min(head.expires,now+this.limits.claim_seconds*1000);
       const result={envelope:parse(head.envelope),claim_id:claimId,lease_epoch:epoch,attempt:head.attempts+1,claim_expires_at:iso(until)};
-      this.db.prepare("UPDATE messages SET state='claimed',claim_id=?,claim_epoch=?,claim_until=?,attempts=attempts+1,uncertain=1,claimed_at=? WHERE id=?").run(claimId,epoch,until,now,head.id);
+      this.db.prepare("UPDATE messages SET state='claimed',claim_id=?,claim_epoch=?,claim_until=?,attempts=attempts+1,claim_prior_uncertain=uncertain,uncertain=1,claimed_at=? WHERE id=?").run(claimId,epoch,until,now,head.id);
       this.db.prepare('INSERT INTO claims VALUES(?,?,?,?,?,?)').run(id,epoch,key,request,canonical(result),now);
       return result;
     });
@@ -316,7 +344,7 @@ export class BrokerStore {
     let state=b.outcome==='delivered'?'delivered':b.outcome==='permanent_not_stored'||m.attempts>=this.limits.max_attempts?'failed':'queued';
     const reason=state==='delivered'?null:state==='failed'?(b.outcome==='permanent_not_stored'?'recipient_rejected':'attempts_exhausted'):(b.reason??null);
     // A not-stored response resolves only this attempt, not an earlier unconfirmed delivery.
-    const uncertain=state==='delivered'?0:m.attempts>1?m.uncertain:0;
+    const uncertain=state==='delivered'?0:m.claim_prior_uncertain;
     this.db.prepare('UPDATE messages SET state=?,reason=?,uncertain=?,delivered_at=?,terminal_at=?,claim_id=NULL,claim_epoch=NULL,claim_until=NULL WHERE id=?').run(state,reason,uncertain,state==='delivered'?now:null,terminal(state)?now:null,message);
     const result=this.receiptRow(this.db.prepare('SELECT * FROM messages WHERE id=?').get(message));
     this.db.prepare('INSERT INTO completions VALUES(?,?,?,?,?,?,?)').run(b.claim_id,id,epoch,message,request,canonical(result),now);

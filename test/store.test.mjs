@@ -144,3 +144,60 @@ test('commit-stage failure is not_applied only after confirmed rollback',t=>{
  enabled=true;assert.throws(()=>f.store.send(f.a.entry,a.client_id,1,'commit',sendBody(b.client_id)),e=>e.effect==='not_applied');enabled=false;
  assert.equal(f.store.db.prepare('SELECT count(*) n FROM messages').get().n,0);
 });
+
+test('rollback uncertainty poisons writer readiness until restart and never claims no effect',t=>{
+ let enabled=false;const f=fixture(t,{fault:where=>{if(enabled&&['commit_attempt','before_rollback'].includes(where))throw new Error('I/O fault');}}),[a,b]=pair(f);
+ enabled=true;assert.throws(()=>f.store.send(f.a.entry,a.client_id,1,'uncertain',sendBody(b.client_id)),e=>e.effect==='unknown');
+ assert.equal(f.store.safe(),false);enabled=false;f.restart();assert.equal(f.store.safe(),true);assert.equal(f.store.db.prepare('SELECT count(*) n FROM messages').get().n,0);
+});
+
+test('receipt expiry is exact beyond cleanup batch and empty claim replay stays empty',t=>{
+ const f=fixture(t,{limits:{send_burst:1000,principal_send_burst:1000}}),[a,b]=pair(f);const other=registration();f.store.register(f.b.entry,other);
+ for(let i=0;i<210;i++)f.store.send(f.a.entry,a.client_id,1,`old-${i}`,sendBody(other.client_id,'x',{ttl_seconds:60}));
+ const old=f.store.send(f.a.entry,a.client_id,1,'old',sendBody(b.client_id,'x',{ttl_seconds:60}));f.advance(60001);
+ assert.equal(f.store.receipt(f.a.entry,a.client_id,old.message_id).delivery_state,'expired');
+ assert.equal(f.store.claim(f.b.entry,b.client_id,1,'empty',{}),null);
+ f.store.send(f.a.entry,a.client_id,1,'new',sendBody(b.client_id));
+ assert.equal(f.store.claim(f.b.entry,b.client_id,1,'empty',{}),null);
+ assert.ok(f.store.claim(f.b.entry,b.client_id,1,'new-claim',{}));
+});
+
+test('unsafe or unknown policy configuration cannot start a broker',t=>{
+ const f=fixture(t);for(const limits of [{typo:1},{retention_seconds:1},{registration_retention_seconds:1},{lease_seconds:100},{max_wait_seconds:31},{max_message_bytes:100000},{default_ttl_seconds:50}])assert.throws(()=>new BrokerStore({path:`${f.dir}/invalid.sqlite`,limits}));
+});
+
+test('per-token allowed types constrain all exact-session operations despite shared installation',t=>{
+ const f=fixture(t),[a,b]=pair(f),limited={...f.a.entry,client_types:['claude-code']};
+ const sent=f.store.send(f.a.entry,a.client_id,1,'type',sendBody(b.client_id));
+ code(()=>f.store.session(limited,a.client_id),'recipient_not_found');
+ code(()=>f.store.heartbeat(limited,a.client_id,1),'recipient_not_found');
+ code(()=>f.store.send(limited,a.client_id,1,'type',sendBody(b.client_id)),'recipient_not_found');
+ code(()=>f.store.claim(limited,a.client_id,1,'claim',{}),'recipient_not_found');
+ code(()=>f.store.metadata(limited,a.client_id,1,{metadata_patch:{name:'wrong'},expected_metadata_revision:1}),'recipient_not_found');
+ code(()=>f.store.receipt(limited,a.client_id,sent.message_id),'recipient_not_found');
+ code(()=>f.store.closeSession(limited,a.client_id,1),'recipient_not_found');
+});
+
+test('negative ACK resolves only its own uncertainty, retaining earlier unconfirmed attempts',t=>{
+ const f=fixture(t),[a,b]=pair(f),sent=f.store.send(f.a.entry,a.client_id,1,'certainty',sendBody(b.client_id));
+ for(let i=0;i<2;i++){
+  const claim=f.store.claim(f.b.entry,b.client_id,1,`negative-${i}`,{});
+  const result=f.store.complete(f.b.entry,b.client_id,1,sent.message_id,{claim_id:claim.claim_id,outcome:'retryable_not_stored',reason:'inbox_full'});
+  assert.equal(result.delivery_uncertain,false);
+ }
+ const lost=f.store.claim(f.b.entry,b.client_id,1,'lost',{});f.advance(120001);
+ f.store.heartbeat(f.b.entry,b.client_id,1);
+ const next=f.store.claim(f.b.entry,b.client_id,1,'after-lost',{});assert.notEqual(next.claim_id,lost.claim_id);
+ const result=f.store.complete(f.b.entry,b.client_id,1,sent.message_id,{claim_id:next.claim_id,outcome:'permanent_not_stored',reason:'unsupported_envelope'});
+ assert.equal(result.delivery_uncertain,true);
+});
+
+test('v1 to v2 migration preserves pending mail, epoch identities and idempotency records',t=>{
+ const f=fixture(t),[a,b]=pair(f),sent=f.store.send(f.a.entry,a.client_id,1,'migrate',sendBody(b.client_id));
+ f.store.db.exec('ALTER TABLE messages DROP COLUMN claim_prior_uncertain; PRAGMA user_version=1;');f.restart();
+ assert.equal(f.store.db.prepare('PRAGMA user_version').get().user_version,2);
+ assert.equal(f.store.receipt(f.a.entry,a.client_id,sent.message_id).delivery_state,'queued');
+ f.store.register(f.a.entry,{...a,previous_epoch:1,connection_id:uuid()});
+ assert.equal(f.store.send(f.a.entry,a.client_id,2,'migrate',sendBody(b.client_id)).message_id,sent.message_id);
+ assert.equal(f.store.session(f.b.entry,b.client_id).connected,false);
+});

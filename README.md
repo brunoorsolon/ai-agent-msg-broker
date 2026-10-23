@@ -2,12 +2,14 @@
 
 A generic, authenticated LAN message broker for independent AI CLI sessions. It owns the recipient registry, background presence, and durable **message delivery**—not conversations, tasks, model progress, or agent orchestration.
 
-**Status: development preview.** The broker core and reference adapter are under implementation in a draft PR. Real Pi, Antigravity CLI, Claude Code, and OpenCode receiving modes are separately gated; protocol fixtures are not evidence of real CLI compatibility.
+**Status: development preview.** The broker core, reference adapter and local stdio facade are available for review in a draft PR. Real Pi, Antigravity CLI, Claude Code, and OpenCode receiving modes are separately gated; protocol fixtures are not evidence of real CLI compatibility.
 
 ## Contract
 
 - [v1 specification](docs/spec-v1.md)
 - [OpenAPI 3.1 contract](openapi.json) and [canonical serialization](docs/contract.md)
+- [Reference adapter/runtime](docs/reference.md), [operations and containers](docs/operations.md)
+- [Verification record](docs/verification.md) and [real-CLI compatibility gates](docs/feasibility.md)
 - [Implementation issues and milestones](docs/implementation-plan.md)
 
 `202 Accepted` means stored by the broker. `delivered` means committed to the exact recipient's durable adapter inbox, **not** read, injected into a harness, processed, or answered by a model. Plain text remains untrusted agent input.
@@ -19,6 +21,8 @@ Use **Node.js 24.19.0** (the tested runtime; bundled SQLite 3.53.3). No npm pack
 ```sh
 npm test
 npm run check
+npm run smoke  # actual nonroot service entrypoint, disposable fixtures
+npm run demo   # all 16 simulated family routes into durable reference inboxes
 ```
 
 The tests use isolated temporary databases and disposable test-only credentials/certificates. TLS tests require the `openssl` command. They do not configure a host, provision ongoing access, or call an LLM.
@@ -28,3 +32,5 @@ The service starts with `BROKER_CONFIG_FILE=/path/to/private/config.json npm sta
 One broker process owns local SQLite, using WAL and FULL durability. A separate SQLite exclusive owner lock prevents duplicate writers without relying on process IDs. Shared/network SQLite files and public Internet ingress are unsupported.
 
 No release, deployment, host configuration change, or production credential is included in this repository's test runs.
+
+The demo uses eight distinct session identities, real HTTP, and local durable reference journals; it performs no native CLI input or LLM calls. The optional MCP facade is local stdio/tools-only, with no Channel push, remote MCP listener, permission relay, or claimed native-host certification.
