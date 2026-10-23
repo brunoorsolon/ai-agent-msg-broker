@@ -37,3 +37,20 @@ jobs:
         run: docker run --rm --network none broker-runtime:ci node --input-type=module -e "import {DatabaseSync} from 'node:sqlite'; if(process.getuid()===0)process.exit(1); const d=new DatabaseSync(':memory:'); d.close()"
       - name: Smoke actual broker entrypoint as nonroot with disposable fixtures
         run: docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m broker-runtime:ci node scripts/container-smoke.mjs
+  rootless-podman:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Verify preinstalled unprivileged rootless Podman
+        run: |
+          test "$(id -u)" -ne 0
+          command -v podman
+          podman --version
+          test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+      - name: Build digest-pinned runtime with rootless Podman
+        run: podman build --target runtime -f Containerfile -t localhost/broker-podman:ci .
+      - name: Smoke private bind mounts and restart under keep-id without network
+        run: node scripts/podman-smoke.mjs localhost/broker-podman:ci
