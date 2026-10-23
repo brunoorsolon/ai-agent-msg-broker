@@ -1,5 +1,9 @@
 # First real local test: two fresh Claude Code sessions
 
+**Already have sessions/plugins running, or only want the broker?** Use
+[broker-only startup](local-broker-test.md) instead. This optional guide launches
+new sessions and is not a prerequisite for connecting your existing clients.
+
 This is a **controlled live validation**, not a claim that authenticated Claude
 delivery was already certified. It uses your installed **Claude Code 2.1.309**,
 normal model account and ordinary project/MCP approvals. It does not attach to an

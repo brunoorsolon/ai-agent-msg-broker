@@ -2,6 +2,7 @@
 # User-invoked, private two-Claude experiment. No global install or permission bypass.
 set -euo pipefail
 umask 077
+printf '%s\n' 'Preparing the optional NEW-session Claude lab. For broker only, use: bash scripts/start-local-broker.sh'
 image='localhost/ai-agent-msg-broker-test:reviewed'
 claude_binary=''
 while (($#)); do
@@ -14,7 +15,9 @@ done
 [[ $(uname -s) == Linux && $(id -u) != 0 ]] || { echo 'Use an ordinary nonroot Linux account.' >&2; exit 1; }
 for command in podman git sha256sum readlink; do command -v "$command" >/dev/null; done
 [[ $(podman info --format '{{.Host.Security.Rootless}}') == true ]] || { echo 'Existing rootless Podman is required; do not change host security.' >&2; exit 1; }
-[[ -n "$claude_binary" ]] || claude_binary=$(command -v claude)
+if [[ -z "$claude_binary" ]]; then
+  claude_binary=$(command -v claude) || { echo 'No terminal Claude executable found. Existing sessions do not need this launcher; use: bash scripts/start-local-broker.sh' >&2; exit 1; }
+fi
 claude_binary=$(readlink -f -- "$claude_binary")
 [[ -f "$claude_binary" && -x "$claude_binary" ]] || { echo 'Select an already installed Claude executable.' >&2; exit 1; }
 broker_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
