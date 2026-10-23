@@ -1,0 +1,28 @@
+{
+  "protocol_version": "1",
+  "message_id": "33333333-3333-4333-8333-333333333333",
+  "recipient_id": "22222222-2222-4222-8222-222222222222",
+  "recipient_sequence": 17,
+  "sender": {
+    "client_id": "11111111-1111-4111-8111-111111111111",
+    "client_type": "pi",
+    "name": "reviewer-a",
+    "model": {
+      "provider": null,
+      "id": null,
+      "source": "unknown"
+    },
+    "project": null,
+    "metadata_revision": 5
+  },
+  "origin": "broker_agent",
+  "authority": "untrusted_agent_input",
+  "content": {
+    "type": "text/plain",
+    "text": "Please review the retry behavior. 🧪"
+  },
+  "accepted_at": "2026-10-23T00:00:00.000Z",
+  "expires_at": "2026-10-24T00:00:00.000Z",
+  "correlation_id": null,
+  "reply_to_message_id": null
+}

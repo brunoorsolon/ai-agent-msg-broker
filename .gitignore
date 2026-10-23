@@ -1,0 +1,7 @@
+node_modules/
+*.sqlite*
+*.db*
+*.lock
+.secrets/
+coverage/
+.env

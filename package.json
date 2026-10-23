@@ -1,0 +1,1 @@
+{"name":"ai-agent-msg-broker","version":"0.1.0","private":true,"type":"module","engines":{"node":"24.19.0"},"scripts":{"test":"node --test test/*.test.mjs","check":"node scripts/check.mjs","start":"node src/main.mjs"},"license":"MIT"}
