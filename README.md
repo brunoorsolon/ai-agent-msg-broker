@@ -25,6 +25,8 @@ cd ai-agent-msg-broker
 
 Use an isolated pinned runtime/container rather than upgrading a workstation's global Node. See [container instructions](docs/operations.md#container-review-and-rootless-podman-example).
 
+Already built the reviewed test image and have Claude Code 2.1.309? Follow the [controlled two-Claude local test](docs/local-claude-test.md). It uses a temporary authenticated loopback broker and an isolated copied runtime, not a global upgrade or a certified native integration.
+
 ## Development
 
 Use **Node.js 24.19.0** (the tested runtime; bundled SQLite 3.53.3). No npm packages are required.

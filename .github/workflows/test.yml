@@ -19,6 +19,8 @@ jobs:
       - name: Verify pinned built-in SQLite runtime
         run: node --input-type=module -e "import {DatabaseSync} from 'node:sqlite'; const d=new DatabaseSync(':memory:'); if(d.prepare('SELECT sqlite_version() AS v').get().v!=='3.53.3')process.exit(1); d.close()"
       - run: npm run check
+      - name: Check local-lab shell syntax
+        run: bash -n scripts/start-local-claude-lab.sh scripts/copy-image-node.sh
       - run: npm test
   container:
     runs-on: ubuntu-24.04
@@ -54,3 +56,10 @@ jobs:
         run: podman build --target runtime -f Containerfile -t localhost/broker-podman:ci .
       - name: Smoke private bind mounts and restart under keep-id without network
         run: node scripts/podman-smoke.mjs localhost/broker-podman:ci
+      - name: Verify isolated host runtime copied from the same local image
+        run: |
+          umask 077
+          lab=$(mktemp -d "$RUNNER_TEMP/broker-node-copy.XXXXXXXX")
+          trap 'rm -r -- "$lab"' EXIT
+          bash scripts/copy-image-node.sh localhost/broker-podman:ci "$lab/node"
+          "$lab/node" --test test/local-claude-lab.test.mjs
