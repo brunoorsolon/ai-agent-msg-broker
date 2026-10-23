@@ -1,5 +1,5 @@
 # Exact official image digests resolved and tested by the recorded Docker CI run.
-# Rootless Podman/Quadlet and two-host LAN remain separate operator test gates.
+# Ubuntu rootless Podman is CI-tested; Fedora Quadlet/SELinux and LAN remain operator gates.
 FROM node:24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df AS base
 WORKDIR /app
 COPY package.json ./

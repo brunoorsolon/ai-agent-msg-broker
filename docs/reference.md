@@ -44,6 +44,16 @@ and heartbeat loops are independent: long polling never waits for a model turn o
 blocks presence. The effective heartbeat policy has bounded ±10% jitter. A local
 receive pause retains existing inbox data and leaves heartbeats running.
 
+Stopping reserves the closed lifetime immediately and drains a registration/reconnect
+already in progress before closing the final known epoch. Attachment transitions
+have an independent overall network deadline (the client request timeout, default
+40 seconds, capped at 60 seconds), so canceling a long poll does not discard a late
+registration result. Shutdown may wait for that deadline plus bounded close; the
+trusted host `verifySession`/`isAlive` callbacks must also settle promptly. A stop racing startup cannot launch new loops, and all
+shutdown callers must await completion before closing the inbox. Session close is
+still best effort: unknown network/storage outcomes never justify guessing an epoch
+or adopting another connection; lease expiry is the fallback.
+
 ## Configuration and transport
 
 `Inbox` requires `directory` and `identity`. The directory is local, private

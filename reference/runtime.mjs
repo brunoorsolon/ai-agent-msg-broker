@@ -75,6 +75,12 @@ export class AdapterRuntime {
     this.paused = false;
     this.closed = false;
     this.closePromise = null;
+    this.closeEpoch = null;
+    this.closeDrainPromise = null;
+    this.startPromise = null;
+    this.attachmentPromise = null;
+    this.drainPromise = null;
+    this.closeRequested = false;
   }
 
   diagnostic(code) {
@@ -89,10 +95,16 @@ export class AdapterRuntime {
   }
 
   async checkAlive() {
-    if (this.closed || await this.isAlive() !== true) {
+    if (this.closed) return false;
+    const alive = await this.isAlive();
+    // stop may run while the host's lifecycle observation is pending.
+    if (this.closed) return false;
+    if (alive !== true) {
       this.closed = true;
       this.controller?.abort();
-      this.requestClose();
+      // Do not await our own loop from inside that loop. Shutdown drains all
+      // attachment work before closing, including a reconnect in the other loop.
+      void this.stop().catch(error => this.diagnostic(error.code ?? 'close_failed'));
       return false;
     }
     return true;
@@ -142,10 +154,13 @@ export class AdapterRuntime {
   }
 
   async handleTransportError(error, signal) {
-    if (signal?.aborted) return false;
+    if (this.closed || signal?.aborted) return false;
     this.diagnostic(error.code ?? 'transport_error');
     if (error.code === 'stale_lease_epoch') {
-      try { await this.client.reconnect({ verifySession: this.verifySession, signal }); return true; }
+      try {
+        await this.trackAttachment(attachmentSignal => this.client.reconnect({ verifySession: this.verifySession, signal: attachmentSignal }));
+        return !this.closed && !signal?.aborted;
+      }
       catch (reconnectError) { this.diagnostic(reconnectError.code ?? 'reconnect_failed'); this.paused = true; return false; }
     }
     if (error.code === 'claim_conflict' || error.code === 'message_expired') {
@@ -160,21 +175,57 @@ export class AdapterRuntime {
     return true;
   }
 
-  async start(metadata) {
-    if (this.controller || this.closed) throw new LocalError('owner_conflict');
-    if (await this.verifySession(this.inbox.identity) !== true || !await this.checkAlive()) throw new LocalError('session_mismatch');
+  start(metadata) {
+    if (this.startPromise || this.controller || this.closed) return Promise.reject(new LocalError('owner_conflict'));
+    // Reserve ownership before the first await, so concurrent start/stop also
+    // covers host preflight and the initial registration, not only running loops.
     this.controller = new AbortController();
     const signal = this.controller.signal;
-    try {
-      if (this.client.attachment.lease_epoch) await this.client.reconnect({ verifySession: this.verifySession, signal, metadata, receiveEnabled: this.receiveEnabled });
+    this.startPromise = this.startSession(metadata, signal);
+    const pending = this.startPromise;
+    pending.catch(() => {
+      // A failed, unstopped startup can be retried after its attachment work has
+      // settled. A stopped lifetime is irreversible and retains its drain target.
+      if (!this.closed && this.startPromise === pending) { this.startPromise = null; this.controller = null; }
+    });
+    return this.startPromise;
+  }
+
+  async trackAttachment(operation) {
+    if (this.closed) throw new LocalError('request_aborted', { effect: 'unknown' });
+    if (this.attachmentPromise) return this.attachmentPromise;
+    // Intentionally do not pass the loop's abort signal into a lease transition.
+    // The client's absolute request deadlines still apply; an additional overall
+    // 60-second ceiling (or shorter client request deadline) bounds shutdown wait.
+    // On stop, learn the final known epoch rather than discarding a late success.
+    const controller = new AbortController();
+    const requestMs = Number.isFinite(this.client.requestTimeoutMs) && this.client.requestTimeoutMs > 0 ? this.client.requestTimeoutMs : 40000;
+    const timer = setTimeout(() => controller.abort(), Math.min(60000, requestMs));
+    timer.unref?.();
+    const pending = Promise.resolve().then(() => {
+      if (this.closed) throw new LocalError('request_aborted', { effect: 'unknown' });
+      return operation(controller.signal);
+    });
+    this.attachmentPromise = pending;
+    try { return await pending; }
+    finally { clearTimeout(timer); if (this.attachmentPromise === pending) this.attachmentPromise = null; }
+  }
+
+  async startSession(metadata, signal) {
+    if (await this.verifySession(this.inbox.identity) !== true) throw new LocalError('session_mismatch');
+    if (this.closed || signal.aborted) throw new LocalError('request_aborted', { effect: 'unknown' });
+    if (!await this.checkAlive()) throw new LocalError('session_mismatch');
+    await this.trackAttachment(async attachmentSignal => {
+      if (this.client.attachment.lease_epoch) await this.client.reconnect({ verifySession: this.verifySession, signal: attachmentSignal, metadata, receiveEnabled: this.receiveEnabled });
       else {
-        try { await this.client.register(metadata, { receiveEnabled: this.receiveEnabled, signal }); }
+        try { await this.client.register(metadata, { receiveEnabled: this.receiveEnabled, signal: attachmentSignal }); }
         catch (error) {
-          if (error.code !== 'stale_lease_epoch') throw error;
-          await this.client.reconnect({ verifySession: this.verifySession, signal, metadata, receiveEnabled: this.receiveEnabled });
+          if (error.code !== 'stale_lease_epoch' || this.closed) throw error;
+          await this.client.reconnect({ verifySession: this.verifySession, signal: attachmentSignal, metadata, receiveEnabled: this.receiveEnabled });
         }
       }
-    } catch (error) { this.controller = null; throw error; }
+    });
+    if (this.closed || signal.aborted) throw new LocalError('request_aborted', { effect: 'unknown' });
     // Loops are independent: a 30-second long poll cannot delay the heartbeat.
     const heartbeat = async () => {
       while (!signal.aborted && await this.checkAlive()) {
@@ -208,18 +259,48 @@ export class AdapterRuntime {
 
   pauseReceiving(paused = true) { this.paused = Boolean(paused); }
 
-  requestClose() {
-    try {
-      if (!this.closePromise && this.client.attachment.lease_epoch) this.closePromise = this.client.closeSession({ signal: AbortSignal.timeout(5000) })
-        .catch(error => this.diagnostic(error.code ?? 'close_failed'));
-    } catch (error) { this.diagnostic(error.code ?? 'close_failed'); }
+  async requestClose() {
+    if (this.closeDrainPromise) return this.closeDrainPromise;
+    const pending = this.closeLatestKnownEpoch();
+    this.closeDrainPromise = pending;
+    try { return await pending; }
+    finally { if (this.closeDrainPromise === pending) this.closeDrainPromise = null; }
+  }
+
+  async closeLatestKnownEpoch() {
+    // This is best-effort close of the final *known owned* epoch. Unknown network
+    // outcomes are not resolved by guessing an epoch or creating another lease;
+    // when identity/storage/network reconciliation fails, lease expiry is fallback.
+    await Promise.allSettled([this.startPromise, this.attachmentPromise, this.client.connectPromise].filter(Boolean));
+    for (;;) {
+      try {
+        const epoch = this.client.attachment.lease_epoch;
+        if (!epoch) return;
+        if (this.closePromise) {
+          await this.closePromise;
+          if (this.client.attachment.lease_epoch === this.closeEpoch) return;
+        }
+        this.closeEpoch = this.client.attachment.lease_epoch;
+        this.closePromise = this.client.closeSession({ signal: AbortSignal.timeout(5000) })
+          .catch(error => this.diagnostic(error.code ?? 'close_failed'));
+        await this.closePromise;
+        if (this.client.attachment.lease_epoch === this.closeEpoch) return;
+      } catch (error) { this.diagnostic(error.code ?? 'close_failed'); return; }
+    }
   }
 
   async stop({ closeSession = true } = {}) {
     this.closed = true;
+    this.closeRequested ||= closeSession;
     this.controller?.abort();
-    await Promise.allSettled(this.loops);
-    if (closeSession) this.requestClose();
-    if (this.closePromise) await this.closePromise;
+    if (!this.drainPromise) this.drainPromise = (async () => {
+      await Promise.allSettled([this.startPromise].filter(Boolean));
+      // Startup cannot create new loops after closed is set. Existing loops may
+      // be awaiting one shared reconnect, so drain them before final-epoch close.
+      await Promise.allSettled(this.loops);
+      await Promise.allSettled([this.attachmentPromise, this.client.connectPromise].filter(Boolean));
+    })();
+    await this.drainPromise;
+    if (this.closeRequested) await this.requestClose();
   }
 }

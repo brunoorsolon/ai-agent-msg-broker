@@ -48,6 +48,21 @@ function claimFor(message, overrides = {}) {
     claim_expires_at: new Date(epoch + 120000).toISOString(), ...overrides };
 }
 
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((resolve_, reject_) => { resolve = resolve_; reject = reject_; });
+  return { promise, resolve, reject };
+}
+
+function untilAbort(_milliseconds, _value, { signal } = {}) {
+  return new Promise((_, reject) => {
+    if (signal?.aborted) { reject(new LocalError('request_aborted')); return; }
+    signal?.addEventListener('abort', () => reject(new LocalError('request_aborted')), { once: true });
+  });
+}
+
+const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+
 test('reference inbox durably deduplicates across restart and excludes attempt fields from digest', t => {
   const f = local(t); const message = envelope(f.identity);
   assert.equal(f.inbox.accept(message).duplicate, false);
@@ -266,6 +281,149 @@ test('owned harness shutdown stops heartbeat and requests exact session close on
   assert.equal(await runtime.heartbeatOnce(), false);
   await runtime.stop();
   assert.equal(client.heartbeatCalls, 1); assert.equal(client.closeCalls, 1);
+});
+
+test('stop drains late initial registration before final close and never launches stopped loops', async t => {
+  const f = local(t), entered = deferred(), registration = deferred();
+  const client = fakeClient(f.inbox, null); client.attachment = {};
+  let attachmentSignal; const closeEpochs = [];
+  client.register = async (_metadata, { signal }) => {
+    attachmentSignal = signal; entered.resolve(); await registration.promise;
+    client.attachment.lease_epoch = 1;
+  };
+  client.closeSession = async () => { closeEpochs.push(client.attachment.lease_epoch); };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => true, sleep: untilAbort });
+  const started = runtime.start(metadata);
+  const stoppedStart = assert.rejects(started, { code: 'request_aborted' });
+  await entered.promise;
+  await assert.rejects(runtime.start(metadata), { code: 'owner_conflict' });
+  let settled = false;
+  const stopped = runtime.stop().then(() => { settled = true; });
+  await nextTurn();
+  assert.equal(settled, false); assert.equal(closeEpochs.length, 0);
+  assert.equal(runtime.controller.signal.aborted, true);
+  assert.notEqual(attachmentSignal, runtime.controller.signal);
+  assert.equal(attachmentSignal.aborted, false, 'stop preserves bounded in-flight attachment result');
+  registration.resolve();
+  await Promise.all([stoppedStart, stopped]);
+  assert.deepEqual(closeEpochs, [1]); assert.equal(runtime.loops.length, 0); assert.equal(client.heartbeatCalls, 0);
+  f.inbox.close(); await nextTurn(); assert.deepEqual(closeEpochs, [1], 'no pending lifecycle operation uses the closed journal');
+});
+
+test('stop closes late reconnect epoch instead of reusing a stale-epoch close cache', async t => {
+  const f = local(t), entered = deferred(), reconnect = deferred();
+  const client = fakeClient(f.inbox, null); const closeEpochs = [];
+  client.closeSession = async () => {
+    closeEpochs.push(client.attachment.lease_epoch);
+    if (client.attachment.lease_epoch === 1) throw new BrokerError(409, { error: { code: 'stale_lease_epoch' } });
+  };
+  client.reconnect = async ({ signal }) => {
+    entered.resolve(signal); await reconnect.promise; client.attachment.lease_epoch = 2;
+  };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => true, sleep: untilAbort });
+  await runtime.requestClose(); assert.deepEqual(closeEpochs, [1]);
+  const started = runtime.start(metadata), stoppedStart = assert.rejects(started, { code: 'request_aborted' });
+  const attachmentSignal = await entered.promise;
+  const stopped = runtime.stop(); await nextTurn();
+  assert.equal(attachmentSignal.aborted, false); assert.deepEqual(closeEpochs, [1]);
+  reconnect.resolve(); await Promise.all([stoppedStart, stopped]);
+  assert.deepEqual(closeEpochs, [1, 2]); assert.equal(runtime.closeEpoch, 2);
+  await runtime.stop(); assert.deepEqual(closeEpochs, [1, 2]);
+});
+
+test('running reconnect and concurrent host stops share a final-epoch close and all await its completion', async t => {
+  const f = local(t), reconnectEntered = deferred(), reconnect = deferred(), closeEntered = deferred(), close = deferred();
+  const client = fakeClient(f.inbox, null); client.attachment = {};
+  const wakeHeartbeat = deferred(); let sleeps = 0; let alive = true; let attachmentSignal;
+  client.register = async () => { client.attachment.lease_epoch = 1; };
+  client.heartbeat = async () => { client.heartbeatCalls++; throw new BrokerError(409, { error: { code: 'stale_lease_epoch' } }); };
+  client.reconnect = async ({ signal }) => { attachmentSignal = signal; reconnectEntered.resolve(); await reconnect.promise; client.attachment.lease_epoch = 2; };
+  const closeEpochs = [];
+  client.closeSession = async () => { closeEpochs.push(client.attachment.lease_epoch); closeEntered.resolve(); await close.promise; };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => alive, receiveEnabled: false,
+    sleep: (milliseconds, value, options) => ++sleeps === 1 ? wakeHeartbeat.promise : untilAbort(milliseconds, value, options) });
+  await runtime.start(metadata); await nextTurn(); wakeHeartbeat.resolve(); await reconnectEntered.promise;
+  alive = false; assert.equal(await runtime.checkAlive(), false, 'host death initiates draining without awaiting its own loop');
+  let stopA = false, stopB = false;
+  const a = runtime.stop().then(() => { stopA = true; });
+  const b = runtime.stop().then(() => { stopB = true; });
+  await nextTurn(); assert.equal(stopA, false); assert.equal(stopB, false); assert.deepEqual(closeEpochs, []);
+  assert.equal(attachmentSignal.aborted, false);
+  reconnect.resolve(); await closeEntered.promise; await nextTurn();
+  assert.deepEqual(closeEpochs, [2]); assert.equal(stopA, false); assert.equal(stopB, false);
+  close.resolve(); await Promise.all([a, b]);
+  assert.equal(client.heartbeatCalls, 1); assert.deepEqual(closeEpochs, [2]);
+});
+
+test('concurrent close callers waiting on old epoch all await a replacement final-epoch close', async t => {
+  const f = local(t), firstEntered = deferred(), firstClose = deferred(), finalEntered = deferred(), finalClose = deferred();
+  const client = fakeClient(f.inbox, null); const closeEpochs = [];
+  client.closeSession = async () => {
+    const epoch = client.attachment.lease_epoch; closeEpochs.push(epoch);
+    if (epoch === 1) { firstEntered.resolve(); await firstClose.promise; throw new BrokerError(409, { error: { code: 'stale_lease_epoch' } }); }
+    finalEntered.resolve(); await finalClose.promise;
+  };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => true });
+  let firstDone = false, secondDone = false;
+  const first = runtime.requestClose().then(() => { firstDone = true; });
+  await firstEntered.promise;
+  const second = runtime.requestClose().then(() => { secondDone = true; });
+  client.attachment.lease_epoch = 2; firstClose.resolve(); await finalEntered.promise; await nextTurn();
+  assert.deepEqual(closeEpochs, [1, 2]); assert.equal(firstDone, false); assert.equal(secondDone, false);
+  finalClose.resolve(); await Promise.all([first, second]);
+  assert.equal(firstDone, true); assert.equal(secondDone, true);
+});
+
+test('stop without close drains late startup but never initiates session close', async t => {
+  const f = local(t), entered = deferred(), registration = deferred();
+  const client = fakeClient(f.inbox, null); client.attachment = {};
+  client.register = async () => { entered.resolve(); await registration.promise; client.attachment.lease_epoch = 1; };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => true, sleep: untilAbort });
+  const started = runtime.start(metadata), stoppedStart = assert.rejects(started, { code: 'request_aborted' });
+  await entered.promise;
+  let settled = false; const stopped = runtime.stop({ closeSession: false }).then(() => { settled = true; });
+  await nextTurn(); assert.equal(settled, false); registration.resolve();
+  await Promise.all([stoppedStart, stopped]);
+  assert.equal(client.closeCalls, 0); assert.equal(runtime.loops.length, 0);
+  await runtime.stop({ closeSession: false }); assert.equal(client.closeCalls, 0);
+  await runtime.stop(); assert.equal(client.closeCalls, 1, 'an explicit later close request remains supported');
+});
+
+test('stop reserves and drains asynchronous startup preflight without registering a departed host', async t => {
+  const f = local(t), verification = deferred(); const client = fakeClient(f.inbox, null); client.attachment = {};
+  let registrations = 0; client.register = async () => { registrations++; };
+  const runtime = new AdapterRuntime({ client, verifySession: () => verification.promise, isAlive: () => true, sleep: untilAbort });
+  const started = runtime.start(metadata), stoppedStart = assert.rejects(started, { code: 'request_aborted' });
+  await assert.rejects(runtime.start(metadata), { code: 'owner_conflict' });
+  let settled = false; const stopped = runtime.stop().then(() => { settled = true; });
+  await nextTurn(); assert.equal(settled, false); verification.resolve(true);
+  await Promise.all([stoppedStart, stopped]);
+  assert.equal(registrations, 0); assert.equal(client.closeCalls, 0);
+});
+
+test('failed unstopped startup can retry the same runtime after its attachment settles', async t => {
+  const f = local(t); const client = fakeClient(f.inbox, null); client.attachment = {}; let registrations = 0;
+  client.register = async () => { if (++registrations === 1) throw new LocalError('request_failed', { effect: 'unknown' }); client.attachment.lease_epoch = 1; };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => true, sleep: untilAbort, receiveEnabled: false });
+  await assert.rejects(runtime.start(metadata), { code: 'request_failed' });
+  assert.equal(runtime.controller, null); assert.equal(runtime.startPromise, null);
+  assert.equal((await runtime.start(metadata)).lease_epoch, 1);
+  await runtime.stop(); assert.equal(registrations, 2); assert.equal(client.closeCalls, 1);
+});
+
+test('attachment has an independent absolute deadline so stop cannot wait through unbounded backoff', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = local(t), entered = deferred(); const client = fakeClient(f.inbox, null); client.attachment = {}; client.requestTimeoutMs = 40;
+  let attachmentSignal;
+  client.register = async (_metadata, { signal }) => { attachmentSignal = signal; entered.resolve(); return untilAbort(0, undefined, { signal }); };
+  const runtime = new AdapterRuntime({ client, verifySession: () => true, isAlive: () => true, sleep: untilAbort });
+  const started = runtime.start(metadata), stoppedStart = assert.rejects(started, { code: 'request_aborted' });
+  await entered.promise; const stopped = runtime.stop();
+  t.mock.timers.tick(39); assert.equal(attachmentSignal.aborted, false);
+  t.mock.timers.tick(1); assert.equal(attachmentSignal.aborted, true);
+  await Promise.all([stoppedStart, stopped]);
+  assert.equal(client.closeCalls, 0, 'unknown attachment failure uses lease expiry, never an invented epoch');
+  assert.equal(runtime.attachmentPromise, null); assert.equal(runtime.loops.length, 0);
 });
 
 test('reference client and runtime interoperate with core HTTP, reconnect, metadata and receipt boundaries', async t => {

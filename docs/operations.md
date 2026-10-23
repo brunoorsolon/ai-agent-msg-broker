@@ -1,6 +1,6 @@
 # Operations and reproducible checks
 
-This is a reviewable broker-core/reference runtime, not an installed service. No host networking, firewall rule, real credential, CLI installation, or deployment is created by these examples. Real CLI final-hop support and two-host LAN/Podman conformance have separate gates in [feasibility.md](feasibility.md).
+This is a reviewable broker-core/reference runtime, not an installed service. No host networking, firewall rule, real credential, CLI installation, or deployment is created by these examples. Real CLI final-hop support and two-host LAN/Fedora deployment conformance have separate gates in [feasibility.md](feasibility.md).
 
 ## Runtime choice and pin
 
@@ -78,7 +78,7 @@ podman build --target test -f Containerfile -t localhost/ai-agent-msg-broker-tes
 podman build --target runtime -f Containerfile -t localhost/ai-agent-msg-broker:reviewed .
 ```
 
-The task's cloud executor had neither Podman nor Docker, so these commands were **not locally run**. The GitHub workflow attempts Docker build/test plus a nonroot isolated entrypoint smoke; its result must be checked for the exact commit. A successful Docker check does not certify rootless Podman, Fedora SELinux/Quadlet, or two-host LAN behavior.
+The task's cloud executor had neither Podman nor Docker, so these commands were **not locally run**. The GitHub workflow passed Docker build/test and a nonroot entrypoint smoke, plus an actual **rootless Podman 4.9.3 on Ubuntu 24.04** private-volume/restart smoke. See [exact-commit evidence](verification.md#rootless-podman-ci). The Podman job uses the runner's existing unprivileged setup, never sudo, installation, host-security changes, published ports or real credentials. Fedora SELinux/Quadlet and two-host LAN behavior remain unverified.
 
 After independent review/provisioning, an operator can adapt:
 
@@ -121,4 +121,4 @@ Schema version 1 is the initial migration; version 2 adds per-claim prior-uncert
 
 Protocol overrides may narrow the wire limits, not enlarge them. Retention must remain at least seven days, registration retry records at least 24 hours, and the lease at least three heartbeat intervals. Database directories must be private (0700) and operator-owned. Scope/type reductions in the verifier file fence affected leases and remove former-scope discovery/send access; a reload never silently grants an existing session new scopes.
 
-Docker and Podman have matching `.dockerignore`/`.containerignore` rules. Keep real config, verifiers, tokens, TLS keys, databases and backups outside the checkout/build context regardless; ignore rules are a second layer, not a secret-management system. The initial exact-code Docker CI passed; see [recorded CI evidence](verification.md#recorded-ci-evidence) for commit/run links.
+Docker and Podman have matching `.dockerignore`/`.containerignore` rules. Keep real config, verifiers, tokens, TLS keys, databases and backups outside the checkout/build context regardless; ignore rules are a second layer, not a secret-management system. Exact-code Docker and bounded Ubuntu rootless Podman CI passed; see [recorded CI evidence](verification.md#recorded-ci-evidence) for commit/run links.

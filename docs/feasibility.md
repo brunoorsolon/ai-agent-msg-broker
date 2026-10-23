@@ -10,10 +10,12 @@ The executable contract fixtures and pinned research links are documented in [co
 
 | CLI | Installed/tested native CLI version in this repository | Automatic final-hop certification | Required evidence before claiming support |
 | --- | --- | --- | --- |
-| Pi | Not installed/tested here. Research source revision `36be9c612e64082a4f0d4d0a94706c38ecbc20a1` only. | Unverified | Exact-session extension ownership; native follow-up behavior; active generation, approval/input/draft and abort guards; provider-visible provenance; native acceptance/ambiguity recovery. |
+| Pi | Official **1.4.0** exercised in an [isolated pinned probe](probes/pi-1.4/README.md): actual session/provider/extension and InteractiveMode Enter paths; injected terminal and deterministic provider. | **Not certified**; `sendMessage` returns void and the inbox item stays pending. | Production exact-session adapter ownership, native acceptance/ambiguity recovery and complete approval/draft/abort arbitration; physical PTY and real-model behavior remain outside the probe. |
 | Antigravity CLI | No tested CLI version. | Unverified | Distinguish exclusive managed stream-JSON from pre-existing interactive CLI. Prove safe result boundaries and prompt/permission behavior; otherwise cooperative-only or unsupported. |
 | Claude Code | No tested CLI version. | Unverified | Explicit compatible Channel/managed/cooperative opt-in; notification receipt is not native acceptance; no permission relay; prompt/abort race and provenance tests. |
 | OpenCode | No tested CLI version. | Unverified | Connect to the exact intended server/session; prove exclusive input arbitration or native queue; approval/draft races; native receipt/idempotency reconciliation. |
+
+The [Pi probe archive](probes/pi-1.4/README.md) includes reproducible source, sanitized output and exact source hashes. It establishes observed Pi native follow-up ordering/provenance and lifetime behavior at its historical code pin, not a production Pi adapter or Antigravity compatibility: its managed Antigravity child is synthetic. All directed real-harness cells below remain uncertified.
 
 A separate adapter implementation, documentation probe, or unit-test fake does not change these cells until its real pinned-CLI evidence is linked. A locally unsupported/cooperative-only adapter may still durably receive/ACK and retain messages without touching a TUI. Do not downgrade by terminal typing or silently infer transport from model names.
 
@@ -37,8 +39,8 @@ The release record for each supported cell must name both pinned CLI versions, a
 ## Environment evidence boundary
 
 - **Locally executable:** Node 24.19.0 / SQLite 3.53.3 contract, store, HTTP/TLS, restart/backup, and reference/fake-harness suites available in this repository. Use the exact commit's test output, not this list, as pass evidence.
-- **Container build/runtime:** not locally run in the implementation executor because Podman/Docker were unavailable. Docker build/test and nonroot isolated entrypoint smoke passed in the linked [verification record](verification.md#recorded-ci-evidence). Local Podman remains unrun; check a new exact commit's workflow conclusion before carrying that evidence forward.
-- **Rootless Podman, Fedora Quadlet/SELinux, separate same-host agent containers, and two-host LAN:** templates/gates only; not established by local HTTP or Docker CI.
+- **Container build/runtime:** not locally run in the implementation executor because Podman/Docker were unavailable. Docker build/test and nonroot isolated entrypoint smoke passed in the linked [verification record](verification.md#recorded-ci-evidence). Actual Ubuntu rootless Podman 4.9.3 private-bind-volume/restart smoke also passed in CI. Local Podman remains unrun; check a new exact commit's workflow conclusion before carrying that evidence forward.
+- **Fedora Quadlet/SELinux, separate same-host agent containers, and two-host LAN:** templates/gates only; not established by local HTTP, Docker CI, or the bounded Ubuntu rootless Podman smoke.
 - **Human's installed CLIs and workstation:** not accessed, installed, configured, or used for these tests.
 
 A broker-core draft is useful before all native adapter gates pass, but it is not a universal four-CLI release. Keep the remaining issues open until their own acceptance evidence exists.
