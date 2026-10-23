@@ -14,6 +14,17 @@ A generic, authenticated LAN message broker for independent AI CLI sessions. It 
 
 `202 Accepted` means stored by the broker. `delivered` means committed to the exact recipient's durable adapter inbox, **not** read, injected into a harness, processed, or answered by a model. Plain text remains untrusted agent input.
 
+## Try the preview branch
+
+`main` still holds the specification until this draft is reviewed. Clone the implementation branch explicitly:
+
+```sh
+git clone --branch feat/durable-broker-v1 --single-branch https://github.com/brunoorsolon/ai-agent-msg-broker.git
+cd ai-agent-msg-broker
+```
+
+Use an isolated pinned runtime/container rather than upgrading a workstation's global Node. See [container instructions](docs/operations.md#container-review-and-rootless-podman-example).
+
 ## Development
 
 Use **Node.js 24.19.0** (the tested runtime; bundled SQLite 3.53.3). No npm packages are required.

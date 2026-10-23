@@ -71,7 +71,7 @@ There is no CORS/browser session flow, OAuth enrollment, public tunnel, automati
 
 ## Container review and rootless Podman example
 
-`Containerfile` has a full official Node test stage (including the `openssl` test command) and a slim nonroot runtime stage. Both pin Node 24.19.0; the build also checks SQLite 3.53.3. An image **tag is not an immutable digest**: before deployment resolve, review, and record the official base-image digest for the chosen architecture. No registry image is pushed by CI.
+`Containerfile` has a full official Node test stage (including the `openssl` test command) and a slim nonroot runtime stage. Both pin Node 24.19.0 and official immutable image digests resolved in the recorded CI run; the build also checks SQLite 3.53.3. Review the selected architecture and rerun the full suite before deliberately updating those pins. No registry image is pushed by CI.
 
 ```sh
 podman build --target test -f Containerfile -t localhost/ai-agent-msg-broker-test:reviewed .
@@ -120,3 +120,5 @@ For restore, stop the broker and all replacement writers, preserve the existing 
 Schema version 1 is the initial migration; version 2 adds per-claim prior-uncertainty tracking so a definitive negative ACK resolves only its own attempt. The v1-to-v2 migration is tested with persisted pending mail and send idempotency. A higher unknown schema fails startup; there is no automatic downgrade. Before a future migration, create and restore-test a snapshot and rerun recovery tests. Unit fixtures establish pending-message/epoch/dedupe restoration logic; they do not replace a production recovery drill on the chosen disk and container topology.
 
 Protocol overrides may narrow the wire limits, not enlarge them. Retention must remain at least seven days, registration retry records at least 24 hours, and the lease at least three heartbeat intervals. Database directories must be private (0700) and operator-owned. Scope/type reductions in the verifier file fence affected leases and remove former-scope discovery/send access; a reload never silently grants an existing session new scopes.
+
+Docker and Podman have matching `.dockerignore`/`.containerignore` rules. Keep real config, verifiers, tokens, TLS keys, databases and backups outside the checkout/build context regardless; ignore rules are a second layer, not a secret-management system. The initial exact-code Docker CI passed; see [recorded CI evidence](verification.md#recorded-ci-evidence) for commit/run links.

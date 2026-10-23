@@ -37,7 +37,7 @@ The release record for each supported cell must name both pinned CLI versions, a
 ## Environment evidence boundary
 
 - **Locally executable:** Node 24.19.0 / SQLite 3.53.3 contract, store, HTTP/TLS, restart/backup, and reference/fake-harness suites available in this repository. Use the exact commit's test output, not this list, as pass evidence.
-- **Container build/runtime:** not locally run in the implementation executor because Podman/Docker were unavailable. The committed CI attempts Docker build/test and nonroot isolated entrypoint smoke. Check the exact commit's workflow conclusion before claiming those passed.
+- **Container build/runtime:** not locally run in the implementation executor because Podman/Docker were unavailable. Docker build/test and nonroot isolated entrypoint smoke passed in the linked [verification record](verification.md#recorded-ci-evidence). Local Podman remains unrun; check a new exact commit's workflow conclusion before carrying that evidence forward.
 - **Rootless Podman, Fedora Quadlet/SELinux, separate same-host agent containers, and two-host LAN:** templates/gates only; not established by local HTTP or Docker CI.
 - **Human's installed CLIs and workstation:** not accessed, installed, configured, or used for these tests.
 

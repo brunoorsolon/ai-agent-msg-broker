@@ -16,3 +16,12 @@ secrets
 private
 state
 backups
+.secrets
+.aws
+.codex
+.agents
+*.token
+token
+token.txt
+credentials.json
+config.json

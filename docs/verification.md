@@ -13,7 +13,7 @@ Runtime queried from the actual binary: Node.js **24.19.0**, bundled SQLite **3.
 | `npm run smoke` | Passed; actual service entrypoint, nonroot, readiness/auth, graceful shutdown |
 | `npm run demo` | Included in aggregate; all 16 simulated family routes across eight distinct reference-session identities |
 | Local container build/run | Not run: neither Docker nor Podman was available |
-| CI container build/run | Workflow provided; verify the exact commit's Actions conclusion before treating as passed |
+| CI container build/run | **Passed** at code checkpoint `e015a6f5d7cc32d0c0a90bd633fab8d94195417a`; linked evidence below |
 | Rootless Podman/Quadlet/SELinux and two-host LAN | Not run; templates and manual gates only |
 | Real Pi/Antigravity CLI/Claude Code/OpenCode final hop | Not certified by this repository's tests |
 
@@ -39,3 +39,9 @@ The exact command output for a later commit supersedes the checkpoint count abov
 The implementation received a separate read-only security/protocol review. Identified defects were fixed with regression tests before the corresponding checkpoint was described as passing. This is not a third-party security certification. Draft PR review and native/deployment acceptance gates remain distinct.
 
 `delivered` always means durable adapter-inbox receipt, never native harness acceptance, model processing, conversation completion, or human authorization. See [feasibility.md](feasibility.md) for the deliberately uncertified real-harness matrix.
+
+## Recorded CI evidence
+
+Code checkpoint `e015a6f5d7cc32d0c0a90bd633fab8d94195417a` passed both [push run 39972853462](https://github.com/brunoorsolon/ai-agent-msg-broker/actions/runs/39972853462) and [PR run 39972854253](https://github.com/brunoorsolon/ai-agent-msg-broker/actions/runs/39972854253). Job logs confirm 109/109 core tests, 109/109 in the Docker build test stage, six nonroot HTTP tests with `--network none`, a slim nonroot runtime build, and the actual entrypoint smoke with a read-only root filesystem and disposable tmpfs data. No image was pushed to a registry.
+
+The Containerfile pins the two official image digests resolved in that run. Both Docker and Podman ignore files exclude private build-context material. These packaging-only changes receive a new exact-commit CI run; they do not change the shared adapter API/code checkpoint. Native CLI, rootless Podman/Quadlet, SELinux and two-host LAN gates remain unrun.
