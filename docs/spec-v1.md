@@ -66,9 +66,9 @@ The LAN is not trusted. A compromised peer, malicious message, leaked token, or 
 ### 3.2 TLS, exposure, and browser behavior
 
 - LAN traffic MUST use TLS with hostname and trust verification. The supported baseline is an existing reverse proxy terminating TLS with a trusted certificate or a private CA explicitly trusted by clients. A small direct-TLS option MAY be provided; an enterprise PKI is not required.
-- Plain HTTP is permitted only under an explicit insecure-development setting bound to loopback. A non-loopback bind with insecure development enabled MUST fail startup. Disabling certificate verification is not an acceptable LAN workaround.
-- If a reverse proxy forwards to an unencrypted upstream, that hop MUST remain on the broker host over loopback or a Unix socket. Otherwise it must also use verified TLS. The API backend MUST NOT accidentally be published on the LAN behind the proxy.
-- Default bind is loopback. LAN listeners and firewall rules must be explicit; no UPnP, public tunnel, automatic router changes, or Internet-facing binding is provided.
+- Plain HTTP without an external TLS proxy is permitted only under an explicit insecure-development setting bound to loopback. A non-loopback bind with insecure development enabled MUST fail startup. Disabling certificate verification is not an acceptable LAN workaround.
+- If a reverse proxy forwards to an unencrypted upstream, that hop MUST remain on the broker host over loopback, a Unix socket, or an explicitly configured isolated trusted same-host container network (`proxy_transport`). Container-network peers are part of this trust boundary; the operator MUST prevent direct LAN/Internet access to that backend. Otherwise it must also use verified TLS. Explicit proxy transport MUST NOT trust forwarded identity/address/protocol headers or bypass authentication. The API backend MUST NOT accidentally be published on the LAN behind the proxy.
+- The raw server default bind is loopback. A container image MAY ship an explicit proxy-transport config listening on its container interface, provided host publication is private by default and this boundary is documented. LAN listeners and firewall rules must be explicit; no UPnP, public tunnel, automatic router changes, or Internet-facing binding is provided.
 - Cross-origin browser access is disabled by default. This is not a browser session/cookie API. Neither CORS nor a private IP range substitutes for authentication.
 - Optional project/name metadata is descriptive, not authorization. Scope membership and routing policy are broker-controlled. Changing `project` cannot grant access.
 
@@ -443,7 +443,7 @@ All tests below require evidence, not merely a checklist marked complete. Unit/i
 ### E. Security and deployment
 
 21. Unauthenticated access, foreign mailbox access, sender spoofing, guessed IDs, unauthorized project/scope changes, token revocation, and token rotation are tested.
-22. Non-loopback HTTP startup is rejected. Invalid/untrusted/hostname-mismatched TLS is rejected; the documented trusted-CA/proxy path succeeds. Backend exposure is checked in the deployment example.
+22. Non-loopback HTTP startup without explicit isolated proxy transport is rejected; insecure-development mode remains loopback-only. Explicit container proxy transport keeps all API authentication enforced. Invalid/untrusted/hostname-mismatched TLS is rejected; the documented trusted-CA/proxy path succeeds. Backend exposure is checked in the deployment example.
 23. Logs/errors/metrics contain no secrets or bodies by default. Malformed/oversized inputs, abusive poll counts, and rate floods remain bounded. Flood an adapter paused on human input until its local inbox/dedupe budget fills: it rejects storage without ACK, loses no pending content, and makes no LLM calls.
 24. Run the same topology in separate rootless Podman containers on one host and across two LAN hosts without shared PID/filesystem assumptions or inbound agent callbacks.
 

@@ -1,0 +1,14 @@
+services:
+  broker:
+    image: ${BROKER_IMAGE:-ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "${BROKER_BIND_IP:-127.0.0.1}:${BROKER_PORT:-8787}:8787"
+    volumes:
+      - broker-data:/data
+    stop_grace_period: 10s
+volumes:
+  broker-data:

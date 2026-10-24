@@ -1,0 +1,16 @@
+{
+  "database": "/data/broker.sqlite",
+  "credential_file": "/run/broker/credentials.json",
+  "host": "0.0.0.0",
+  "port": 8787,
+  "tls": {
+    "certFile": "/run/broker/server.crt",
+    "keyFile": "/run/broker/server.key"
+  },
+  "limits": {
+    "heartbeat_seconds": 60,
+    "lease_seconds": 180,
+    "min_free_bytes": 67108864,
+    "max_disk_bytes": 1073741824
+  }
+}

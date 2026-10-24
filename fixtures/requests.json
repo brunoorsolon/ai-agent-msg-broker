@@ -1,0 +1,506 @@
+{
+  "valid": [
+    {
+      "name": "initial registration unknown model",
+      "validator": "validateRegistration",
+      "value": {
+        "protocol_version": "1",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "client_type": "pi",
+        "session_instance_id": "44444444-4444-4444-8444-444444444444",
+        "connection_id": "55555555-5555-4555-8555-555555555555",
+        "previous_epoch": 0,
+        "metadata": {
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null
+        },
+        "capabilities": {
+          "protocol_version": "1",
+          "adapter_version": "reference/0.1.0",
+          "client_type": "pi",
+          "receive_enabled": true,
+          "durable_inbox": true
+        }
+      }
+    },
+    {
+      "name": "same-session reconnect",
+      "validator": "validateRegistration",
+      "value": {
+        "protocol_version": "1",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "client_type": "pi",
+        "session_instance_id": "44444444-4444-4444-8444-444444444444",
+        "connection_id": "77777777-7777-4777-8777-777777777777",
+        "previous_epoch": 1,
+        "metadata": {
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null
+        },
+        "capabilities": {
+          "protocol_version": "1",
+          "adapter_version": "reference/0.1.0",
+          "client_type": "pi",
+          "receive_enabled": true,
+          "durable_inbox": true
+        }
+      }
+    },
+    {
+      "name": "metadata compare-and-swap",
+      "validator": "validateMetadataPatch",
+      "value": {
+        "metadata_patch": {
+          "name": "reviewer-b",
+          "model": {
+            "provider": "example",
+            "id": "model-2",
+            "source": "observed"
+          },
+          "project": null
+        },
+        "expected_metadata_revision": 5
+      }
+    },
+    {
+      "name": "minimal exact-address send",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        }
+      }
+    },
+    {
+      "name": "send with atomic metadata snapshot",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "ttl_seconds": 60,
+        "correlation_id": "review-1",
+        "reply_to_message_id": "33333333-3333-4333-8333-333333333333",
+        "metadata_patch": {
+          "name": "reviewer-b"
+        },
+        "expected_metadata_revision": 5
+      }
+    },
+    {
+      "name": "claim default immediate",
+      "validator": "validateClaim",
+      "value": {}
+    },
+    {
+      "name": "claim bounded wait",
+      "validator": "validateClaim",
+      "value": {
+        "wait_seconds": 30
+      }
+    },
+    {
+      "name": "renew current claim",
+      "validator": "validateRenew",
+      "value": {
+        "claim_id": "66666666-6666-4666-8666-666666666666"
+      }
+    },
+    {
+      "name": "delivered after durable inbox commit",
+      "validator": "validateCompletion",
+      "value": {
+        "claim_id": "66666666-6666-4666-8666-666666666666",
+        "outcome": "delivered"
+      }
+    },
+    {
+      "name": "storage backpressure before inbox commit",
+      "validator": "validateCompletion",
+      "value": {
+        "claim_id": "66666666-6666-4666-8666-666666666666",
+        "outcome": "retryable_not_stored",
+        "reason": "inbox_full"
+      }
+    },
+    {
+      "name": "incompatible immutable envelope not stored",
+      "validator": "validateCompletion",
+      "value": {
+        "claim_id": "66666666-6666-4666-8666-666666666666",
+        "outcome": "permanent_not_stored",
+        "reason": "unsupported_envelope"
+      }
+    },
+    {
+      "name": "heartbeat or close empty payload",
+      "validator": "validateEmpty",
+      "value": {}
+    },
+    {
+      "name": "immutable envelope",
+      "validator": "validateEnvelope",
+      "value": {
+        "protocol_version": "1",
+        "message_id": "33333333-3333-4333-8333-333333333333",
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "recipient_sequence": 17,
+        "sender": {
+          "client_id": "11111111-1111-4111-8111-111111111111",
+          "client_type": "pi",
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null,
+          "metadata_revision": 5
+        },
+        "origin": "broker_agent",
+        "authority": "untrusted_agent_input",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "accepted_at": "2026-10-23T00:00:00.000Z",
+        "expires_at": "2026-10-24T00:00:00.000Z",
+        "correlation_id": null,
+        "reply_to_message_id": null
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "body sender spoof",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "sender_id": "11111111-1111-4111-8111-111111111111"
+      },
+      "field": "body",
+      "status": 400
+    },
+    {
+      "name": "recipient URL is not an identity",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "https://example.invalid/receive",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        }
+      },
+      "field": "body.recipient_id",
+      "status": 400
+    },
+    {
+      "name": "unknown protocol",
+      "validator": "validateRegistration",
+      "value": {
+        "protocol_version": "2",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "client_type": "pi",
+        "session_instance_id": "44444444-4444-4444-8444-444444444444",
+        "connection_id": "55555555-5555-4555-8555-555555555555",
+        "previous_epoch": 0,
+        "metadata": {
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null
+        },
+        "capabilities": {
+          "protocol_version": "1",
+          "adapter_version": "reference/0.1.0",
+          "client_type": "pi",
+          "receive_enabled": true,
+          "durable_inbox": true
+        }
+      },
+      "field": "body.protocol_version",
+      "status": 400
+    },
+    {
+      "name": "capability type spoof",
+      "validator": "validateRegistration",
+      "value": {
+        "protocol_version": "1",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "client_type": "pi",
+        "session_instance_id": "44444444-4444-4444-8444-444444444444",
+        "connection_id": "55555555-5555-4555-8555-555555555555",
+        "previous_epoch": 0,
+        "metadata": {
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null
+        },
+        "capabilities": {
+          "protocol_version": "1",
+          "adapter_version": "reference/0.1.0",
+          "client_type": "opencode",
+          "receive_enabled": true,
+          "durable_inbox": true
+        }
+      },
+      "field": "body.capabilities.client_type",
+      "status": 400
+    },
+    {
+      "name": "mutable immutable client ID",
+      "validator": "validateMetadataPatch",
+      "value": {
+        "metadata_patch": {
+          "client_id": "11111111-1111-4111-8111-111111111111"
+        },
+        "expected_metadata_revision": 5
+      },
+      "field": "body.metadata_patch",
+      "status": 400
+    },
+    {
+      "name": "unknown model invented from type",
+      "validator": "validateMetadataPatch",
+      "value": {
+        "metadata_patch": {
+          "model": {
+            "provider": "pi",
+            "id": null,
+            "source": "unknown"
+          }
+        },
+        "expected_metadata_revision": 5
+      },
+      "field": "body.metadata_patch.model",
+      "status": 400
+    },
+    {
+      "name": "task telemetry forbidden",
+      "validator": "validateEmpty",
+      "value": {
+        "busy": true
+      },
+      "field": "body",
+      "status": 400
+    },
+    {
+      "name": "missing metadata revision",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "metadata_patch": {
+          "name": "changed"
+        }
+      },
+      "field": "body.expected_metadata_revision",
+      "status": 400
+    },
+    {
+      "name": "revision without patch",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "expected_metadata_revision": 5
+      },
+      "field": "body.expected_metadata_revision",
+      "status": 400
+    },
+    {
+      "name": "TTL below minimum",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "ttl_seconds": 59
+      },
+      "field": "body.ttl_seconds",
+      "status": 400
+    },
+    {
+      "name": "TTL null is not omitted",
+      "validator": "validateSend",
+      "value": {
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "ttl_seconds": null
+      },
+      "field": "body.ttl_seconds",
+      "status": 400
+    },
+    {
+      "name": "unbounded claim wait",
+      "validator": "validateClaim",
+      "value": {
+        "wait_seconds": 31
+      },
+      "field": "body.wait_seconds",
+      "status": 400
+    },
+    {
+      "name": "raw completion reason rejected",
+      "validator": "validateCompletion",
+      "value": {
+        "claim_id": "66666666-6666-4666-8666-666666666666",
+        "outcome": "retryable_not_stored",
+        "reason": "raw message body"
+      },
+      "field": "body.reason",
+      "status": 400
+    },
+    {
+      "name": "delivered cannot claim failure reason",
+      "validator": "validateCompletion",
+      "value": {
+        "claim_id": "66666666-6666-4666-8666-666666666666",
+        "outcome": "delivered",
+        "reason": "inbox_full"
+      },
+      "field": "body.reason",
+      "status": 400
+    },
+    {
+      "name": "harness state is not envelope",
+      "validator": "validateEnvelope",
+      "value": {
+        "protocol_version": "1",
+        "message_id": "33333333-3333-4333-8333-333333333333",
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "recipient_sequence": 17,
+        "sender": {
+          "client_id": "11111111-1111-4111-8111-111111111111",
+          "client_type": "pi",
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null,
+          "metadata_revision": 5
+        },
+        "origin": "broker_agent",
+        "authority": "untrusted_agent_input",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "accepted_at": "2026-10-23T00:00:00.000Z",
+        "expires_at": "2026-10-24T00:00:00.000Z",
+        "correlation_id": null,
+        "reply_to_message_id": null,
+        "task_state": "done"
+      },
+      "field": "envelope",
+      "status": 400
+    },
+    {
+      "name": "forged human authority",
+      "validator": "validateEnvelope",
+      "value": {
+        "protocol_version": "1",
+        "message_id": "33333333-3333-4333-8333-333333333333",
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "recipient_sequence": 17,
+        "sender": {
+          "client_id": "11111111-1111-4111-8111-111111111111",
+          "client_type": "pi",
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null,
+          "metadata_revision": 5
+        },
+        "origin": "broker_agent",
+        "authority": "human_approved",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "accepted_at": "2026-10-23T00:00:00.000Z",
+        "expires_at": "2026-10-24T00:00:00.000Z",
+        "correlation_id": null,
+        "reply_to_message_id": null
+      },
+      "field": "envelope.authority",
+      "status": 400
+    },
+    {
+      "name": "claim cannot enter immutable digest",
+      "validator": "validateEnvelope",
+      "value": {
+        "protocol_version": "1",
+        "message_id": "33333333-3333-4333-8333-333333333333",
+        "recipient_id": "22222222-2222-4222-8222-222222222222",
+        "recipient_sequence": 17,
+        "sender": {
+          "client_id": "11111111-1111-4111-8111-111111111111",
+          "client_type": "pi",
+          "name": "reviewer-a",
+          "model": {
+            "provider": null,
+            "id": null,
+            "source": "unknown"
+          },
+          "project": null,
+          "metadata_revision": 5
+        },
+        "origin": "broker_agent",
+        "authority": "untrusted_agent_input",
+        "content": {
+          "type": "text/plain",
+          "text": "Please review the retry behavior. 🧪"
+        },
+        "accepted_at": "2026-10-23T00:00:00.000Z",
+        "expires_at": "2026-10-24T00:00:00.000Z",
+        "correlation_id": null,
+        "reply_to_message_id": null,
+        "claim_id": "66666666-6666-4666-8666-666666666666"
+      },
+      "field": "envelope",
+      "status": 400
+    }
+  ]
+}

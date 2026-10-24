@@ -1,0 +1,15 @@
+{
+  "algorithm": "sha256-canonical-json-v1",
+  "envelope_sha256": "15a9b07b1555b3f5af5d14cbe00f01a73167ca0dcebe26de6d54e1e0f9b2e8be",
+  "envelope_canonical_utf8": "{\"accepted_at\":\"2026-10-23T00:00:00.000Z\",\"authority\":\"untrusted_agent_input\",\"content\":{\"text\":\"Please review the retry behavior. 🧪\",\"type\":\"text/plain\"},\"correlation_id\":null,\"expires_at\":\"2026-10-24T00:00:00.000Z\",\"message_id\":\"33333333-3333-4333-8333-333333333333\",\"origin\":\"broker_agent\",\"protocol_version\":\"1\",\"recipient_id\":\"22222222-2222-4222-8222-222222222222\",\"recipient_sequence\":17,\"reply_to_message_id\":null,\"sender\":{\"client_id\":\"11111111-1111-4111-8111-111111111111\",\"client_type\":\"pi\",\"metadata_revision\":5,\"model\":{\"id\":null,\"provider\":null,\"source\":\"unknown\"},\"name\":\"reviewer-a\",\"project\":null}}",
+  "ordering_vector": {
+    "value": {
+      "🧪": 1,
+      "": 2,
+      "a": "é",
+      "b": "é"
+    },
+    "canonical_utf8": "{\"a\":\"é\",\"b\":\"é\",\"🧪\":1,\"\":2}",
+    "sha256": "ea6c24a1ededc5b8cb0a00726dea9c71c66b46ffac64c23e90ad043e21aafc0f"
+  }
+}

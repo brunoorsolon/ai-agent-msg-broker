@@ -1,0 +1,27 @@
+# Rootless Quadlet template. Review every path/network choice before use.
+# This file is intentionally .example: it is not an installed/enabled service.
+[Unit]
+Description=AI Agent Message Broker (durable adapter inbox transport)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/ai-agent-msg-broker:reviewed
+ContainerName=ai-agent-msg-broker
+UserNS=keep-id
+User=REPLACE_WITH_OPERATOR_UID:REPLACE_WITH_OPERATOR_GID
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+Volume=%h/.local/share/ai-agent-msg-broker/data:/data:Z
+Volume=%h/.config/ai-agent-msg-broker:/run/broker:ro,Z
+Environment=BROKER_CONFIG_FILE=/run/broker/config.json
+# Replace with one operator-selected LAN bind address. No wildcard host publish.
+PublishPort=REPLACE_WITH_LAN_BIND_ADDRESS:8787:8787
+
+[Service]
+Restart=on-failure
+TimeoutStopSec=45
+
+[Install]
+WantedBy=default.target
