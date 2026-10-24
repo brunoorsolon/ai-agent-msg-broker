@@ -2,6 +2,8 @@
 
 This is a reviewable broker-core/reference runtime, not an installed service. No host networking, firewall rule, real credential, CLI installation, or deployment is created by these examples. Real CLI final-hop support and two-host LAN/Fedora deployment conformance have separate gates in [feasibility.md](feasibility.md).
 
+For the conventional server image, start with [Docker / Compose and release](docker-release.md). The remaining sections cover configuration, direct TLS and optional Podman deployment variants.
+
 ## Runtime choice and pin
 
 - Tested runtime: **Node.js 24.19.0**, using the bundled `node:sqlite` SQLite **3.53.3**.
@@ -32,12 +34,13 @@ Set `BROKER_CONFIG_FILE` to a private JSON file. Do not put tokens in CLI argume
 | `host`, `port` | Explicit bind; default loopback and 8787 |
 | `insecure_development` | Explicit plaintext development exception; loopback only; authentication remains mandatory |
 | `proxy_loopback` | Explicit same-host TLS-proxy upstream exception; loopback only; authentication remains mandatory |
+| `proxy_transport` | Explicit isolated same-host container upstream for an external HTTPS proxy; permits container-interface HTTP, never disables API auth or trusts forwarded identity |
 | `tls.certFile`, `tls.keyFile` | Existing TLS certificate chain and key files for direct HTTPS |
 | `limits` | Finite storage, rate, lease and protocol policy overrides; unknown keys fail startup |
 
-Start with one of `deploy/config.*.example.json`; replace paths in a **private copy**, never in the repository. The `0.0.0.0` listener in the direct-TLS container template is inside its isolated network namespace; host publication must still select one explicit LAN interface. The plaintext/proxy templates bind loopback. Never publish a plaintext wildcard backend.
+Start with one of `deploy/config.*.example.json`; replace paths in a **private copy**, never in the repository. The `0.0.0.0` listener in the direct-TLS container template is inside its isolated network namespace; host publication must still select one explicit LAN interface. The development and `proxy_loopback` templates bind loopback. The container proxy template explicitly binds its container interface; keep that plaintext backend on an isolated trusted same-host proxy path. Never publish it directly to the LAN/Internet. Transport modes are mutually exclusive and must be booleans.
 
-The broker verifier file has this shape (the shipped placeholder intentionally fails validation):
+The shipped empty verifier file `{ "credentials": [] }` is valid and denies every API request. It allows liveness200 but readiness503 until active credentials exist; it creates no identity or secret. Removing all credentials also revokes existing leases/polls. A populated broker verifier file has this shape (the placeholder below intentionally fails validation):
 
 ```json
 {
@@ -65,7 +68,7 @@ For rotation, add a new `credential_id`/verifier with the **same principal, adap
 
 Use an operator-provided certificate for the actual broker hostname, with clients trusting its issuing CA. Direct TLS requires TLS 1.2 or newer. Never use `NODE_TLS_REJECT_UNAUTHORIZED=0`, `rejectUnauthorized:false`, or `curl -k` as a workaround. Private CA clients may use a read-only CA file through `NODE_EXTRA_CA_CERTS`; certificate trust and hostname checks both remain enabled.
 
-An existing host TLS proxy can terminate HTTPS and forward to `127.0.0.1:8787` using the proxy-loopback config **on that same host/network namespace**. The proxy must preserve Authorization and allow a 30-second long-poll response plus margin. It must not rewrite every caller into a shared credential. Do not publish the backend separately. A rootless container's loopback is not the host's loopback: use direct TLS and explicit port publication for the container example, or a separately reviewed same-host proxy topology. A remote proxy-to-backend hop needs verified TLS too.
+An existing host TLS proxy can terminate HTTPS and forward to `127.0.0.1:8787` using the proxy-loopback config **on that same host/network namespace**. The proxy must preserve Authorization and allow a 30-second long-poll response plus margin. It must not rewrite every caller into a shared credential. Do not publish the backend separately. A container's loopback is not the host's loopback. The explicit `proxy_transport` mode permits ordinary Docker networking on a dedicated trusted same-host container/proxy path; the [server image guide](docker-release.md) documents its boundary. No forwarded header grants identity, client address or HTTPS authority. A remote proxy-to-backend hop needs verified TLS too.
 
 There is no CORS/browser session flow, OAuth enrollment, public tunnel, automatic DNS/firewall/router change, or inbound adapter callback. Each adapter has a configured reachable broker HTTPS URL. `localhost` inside one agent container is not the host or another container. SQLite files stay on broker-local disk; messages cross the network through HTTPS only.
 

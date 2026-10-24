@@ -2,7 +2,7 @@ import { readFileSync, openSync, fstatSync, closeSync, constants } from 'node:fs
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, TYPES } from './protocol.mjs';
 
-/** Operator-owned verifier file. No plaintext tokens are retained by the broker. */
+/** Operator-owned verifier file. Empty means deny-all, never authentication bypass. */
 export class CredentialStore {
   constructor({ path, onRevoke = () => {}, onPolicyChange = () => {}, clock = Date.now }) {
     this.path=path;this.onRevoke=onRevoke;this.onPolicyChange=onPolicyChange;this.clock=clock;this.entries=[];this.serial=null;
@@ -17,7 +17,7 @@ export class CredentialStore {
         raw=readFileSync(fd,'utf8');
       }finally{closeSync(fd);}
       const value=JSON.parse(raw);
-      if(!value||Object.keys(value).some(k=>k!=='credentials')||!Array.isArray(value.credentials)||value.credentials.length<1||value.credentials.length>1000) throw new Error('Invalid credential configuration.');
+      if(!value||Object.keys(value).some(k=>k!=='credentials')||!Array.isArray(value.credentials)||value.credentials.length>1000) throw new Error('Invalid credential configuration.');
       const seen=new Set(),hashes=new Set();
       for(const c of value.credentials){
         const keys=['credential_id','token_sha256','principal_id','adapter_id','client_types','scopes','expires_at','revoked'];

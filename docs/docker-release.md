@@ -1,0 +1,66 @@
+# Docker image and release
+
+The normal server package is a **Linux/amd64** image, with Node 24.19.0 and SQLite 3.53.3 inside it. No host Node installation, client launcher, generated certificate or generated credential is needed to start it.
+
+## Pull and run
+
+**The image is not published by a source-code push.** These commands become available after the operator publishes GitHub Release `v0.1.0` from the reviewed implementation (see below). Expected image: `ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0`.
+
+```sh
+docker pull ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0
+docker run -d --name ai-agent-msg-broker --restart unless-stopped \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -p 127.0.0.1:8787:8787 \
+  -v ai-agent-msg-broker-data:/data \
+  ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0
+curl --fail --show-error --max-time 5 http://127.0.0.1:8787/healthz
+```
+
+Expected: `{"status":"ok"}`. The container listens on **HTTP port 8787**; the Docker mapping above exposes that upstream only on host loopback. `/data` is persistent broker-local SQLite storage and must not be shared with a second broker. `docker stop ai-agent-msg-broker` stops it; `docker rm ai-agent-msg-broker` removes the stopped container **without deleting the named data volume**.
+
+The shipped configuration deliberately has **no enrolled credentials**: `/healthz` returns 200, `/readyz` returns 503, and every `/v1` API request returns 401. This is a usable connectivity bootstrap, not a messaging authorization bypass. The image healthcheck checks liveness, not readiness, so this initial state does not make it unhealthy. No clients are automatically registered.
+
+After the operator's existing HTTPS proxy is connected, `https://YOUR_BROKER_HOST/healthz` should return the same body using ordinary verified certificate trust. Proxy, DNS, certificates, firewall and network selection are operator-owned; this repository does not configure them. The backend is plaintext and **must stay on an isolated trusted same-host proxy path, not be exposed directly to the LAN or Internet**. Container-network peers able to reach it are part of that trust boundary. Do not use host networking, privileged mode or disabled certificate verification to make it work.
+
+Docker publishes on all host interfaces if the host IP is omitted. Keep a deliberate binding or private proxy network; the example uses loopback. Use a supported Docker version (28+ for the documented localhost-publishing isolation fix). See [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/).
+
+### Compose alternative
+
+The repository's `compose.yaml` provides the same image, private host-port default and persistent named volume:
+
+```sh
+docker compose up -d
+docker compose logs --tail 30 broker
+```
+
+Configurable environment values: `BROKER_IMAGE` (versioned image or digest), `BROKER_BIND_IP` (default `127.0.0.1`), `BROKER_PORT` (default `8787`, **host-side** port). For example `BROKER_PORT=8788 docker compose up -d` maps host8788 to container8787. Changing a host binding is an explicit operator network decision. `docker compose down` retains data; do **not** add `-v` unless deliberately deleting the broker database.
+
+### Broker configuration later
+
+The built-in `/run/broker/config.json` is [`deploy/config.proxy-container.example.json`](../deploy/config.proxy-container.example.json): database `/data/broker.sqlite`, credentials `/run/broker/credentials.json`, listen `0.0.0.0:8787`, explicit `proxy_transport: true`. The wildcard is **inside the container**, allowing normal Docker port forwarding. This flag explicitly asserts that an external trusted proxy terminates HTTPS; it does not trust forwarded identity/address headers or exempt API authentication. Raw host startup still requires TLS or an explicit plaintext mode.
+
+To enroll adapters later, mount a dedicated private directory containing `config.json` and `credentials.json` at `/run/broker:ro`; follow [credential and configuration requirements](operations.md#private-operator-configuration). The runtime UID/GID is **1000:1000**; files must be readable by that process and meet the private-file checks. Do not mount a whole home directory or put token secrets in the image, Compose file or command line. `BROKER_CONFIG_FILE` can select another mounted config path. The shipped HTTP healthcheck calls `/healthz`. With a custom direct-TLS config it performs bounded TCP listener liveness only—not a certificate trust, API readiness or end-to-end TLS check; real clients still verify TLS normally.
+
+## Publish a release — operator action
+
+1. Review/merge the implementation when desired; this change does not merge the draft PR. The release commit must contain these workflows and the intended source, not the current specification-only `main`.
+2. Keep `package.json` version and release tag aligned: current version `0.1.0` requires tag **`v0.1.0`**. For another version, update `package.json`, test and commit it first.
+3. In GitHub, publish the release at the reviewed commit. Publishing, not merely saving a draft or pushing a tag, triggers **Release image**.
+4. The workflow runs **all** ordinary CI jobs against the immutable release event commit: full test suite, syntax, Docker, rootless Podman, copied-runtime and connectivity checks. Only after success does it build/smoke/push the Linux/amd64 image using the repository's short-lived `GITHUB_TOKEN` with `packages: write`. No registry secret setup is required for this workflow.
+5. Stable releases publish `:VERSION` and `:latest`; prereleases publish only `:VERSION`. The run summary records pull command and image digest. Prefer a version/digest for deployment. Published version tags should not be reused for different source.
+
+GHCR's first package may initially be private even for a public repository. The operator must choose package visibility/access if anonymous `docker pull` is wanted; the workflow does not silently change it. See [GitHub Container registry authentication and visibility](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+**CI** runs on every push and pull request and never publishes. **Release image** runs on `release: published`; its manual action is a **build/test-only dry run** with no registry login, package write or push. No workflow creates a release/tag or deploys a server. The manual action becomes selectable once its workflow exists on the default branch. Release behavior follows [GitHub's release event semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
+
+The workflows are a small adaptation of the operator-supplied [Forge Desk release](https://github.com/brunoorsolon/forge-desk/blob/main/.github/workflows/release.yml) and [CI](https://github.com/brunoorsolon/forge-desk/blob/main/.github/workflows/ci.yml), not a copy of its application/matrix pipeline. Registry publication itself remains unexecuted until the operator publishes a release.
+
+## Build before a release exists
+
+```sh
+docker build --target test -f Containerfile -t broker-test:local .
+docker build --target runtime -f Containerfile -t broker-runtime:local .
+# Use broker-runtime:local in the docker run command above.
+```
+
+CI additionally exercises **ordinary `-p` host-to-container connectivity**, missing/invalid credential rejection, private nonroot storage and persistence across restart. This verifies the container boundary rather than merely curling container loopback. It does not certify any particular Nginx deployment or native agent connector.

@@ -18,10 +18,18 @@ COPY openapi.json ./
 RUN openssl version && npm run check && npm test
 
 FROM base AS runtime
+# Deny-all connectivity bootstrap. Operator-mounted /run/broker overrides these files.
+COPY --chown=node:node --chmod=0600 deploy/config.proxy-container.example.json /run/broker/config.json
+COPY --chown=node:node --chmod=0600 deploy/credentials.empty.json /run/broker/credentials.json
+LABEL org.opencontainers.image.title="AI Agent Message Broker" \
+      org.opencontainers.image.description="Authenticated opaque message delivery to durable adapter inboxes" \
+      org.opencontainers.image.source="https://github.com/brunoorsolon/ai-agent-msg-broker" \
+      org.opencontainers.image.licenses="MIT"
 USER node
 ENV NODE_ENV=production
 ENV BROKER_CONFIG_FILE=/run/broker/config.json
 VOLUME ["/data"]
 EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD ["node", "scripts/container-health.mjs"]
 STOPSIGNAL SIGTERM
 CMD ["node", "src/main.mjs"]

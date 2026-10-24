@@ -1,0 +1,7 @@
+{
+  "database": "/data/broker.sqlite",
+  "credential_file": "/run/broker/credentials.json",
+  "host": "0.0.0.0",
+  "port": 8787,
+  "proxy_transport": true
+}

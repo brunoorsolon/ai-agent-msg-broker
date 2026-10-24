@@ -69,3 +69,40 @@ test('operator scope shrink removes former-scope discovery and send access witho
  const reconnected=await f.request('/v1/sessions',{token:f.b.token,method:'POST',body:{...b,previous_epoch:1,connection_id:uuid()}});assert.equal(reconnected.status,200);
  assert.equal((await f.request('/v1/clients?connected=false')).body.clients.length,1);
 });
+
+test('explicit empty credential collection keeps health public but every API denied and readiness unavailable',async t=>{
+ const f=await httpFixture(t);f.writeCreds([]);
+ assert.equal((await f.request('/healthz',{token:null})).status,200);
+ assert.equal((await f.request('/readyz',{token:null})).status,503);
+ for(const token of [null,f.a.token,'123'])for(const path of ['/v1/clients','/v1/sessions','/v1/unknown']) {
+  assert.equal((await f.request(path,{token})).status,401);
+  assert.equal((await f.request(path,{token,method:'POST',body:{}})).status,401);
+ }
+ assert.equal(f.auth.ready,false);assert.deepEqual(f.auth.entries,[]);
+});
+
+test('reloading empty credentials revokes leases and cancels polls without silently restoring them',async t=>{
+ const f=await httpFixture(t),session=registration();await f.request('/v1/sessions',{method:'POST',body:session});
+ const pending=f.request('/v1/mailbox/claim',{method:'POST',session:session.client_id,key:'disable',body:{wait_seconds:30}});
+ while(f.app.polls.size===0)await new Promise(r=>setTimeout(r,1));
+ f.writeCreds([]);assert.equal((await f.request('/readyz',{token:null})).status,503);assert.equal((await pending).status,401);
+ f.writeCreds([f.a.entry]);assert.equal((await f.request('/readyz',{token:null})).status,200);
+ assert.equal((await f.request(`/v1/sessions/${session.client_id}`)).body.connected,false);
+ assert.equal((await f.request(`/v1/sessions/${session.client_id}/heartbeat`,{method:'POST',session:session.client_id,body:{}})).status,403); // removed scope is not silently re-granted
+});
+
+test('explicit proxy transport permits container listener without trusting forwarded auth or bypassing API auth',async t=>{
+ const f=await httpFixture(t,{server:{host:'0.0.0.0',insecureDevelopment:false,proxyTransport:true}});
+ assert.equal(f.app.server.address().address,'0.0.0.0');
+ assert.equal((await f.request('/healthz',{token:null})).status,200);
+ assert.equal((await f.request('/v1/clients',{token:null,headers:{'X-Forwarded-Proto':'https','X-Forwarded-For':'127.0.0.1','X-Forwarded-User':'owner'}})).status,401);
+ assert.equal((await f.request('/v1/clients')).status,200);
+});
+
+test('proxy transport must be explicit boolean and cannot combine with TLS or development exceptions',()=>{
+ for(const options of [
+  {proxyTransport:'true'},{proxyTransport:1},{proxyTransport:true,insecureDevelopment:true},
+  {proxyTransport:true,proxyLoopback:true},{proxyTransport:true,tls:{certFile:'unused',keyFile:'unused'}},
+  {host:'0.0.0.0',proxyLoopback:true},{host:'0.0.0.0'}
+ ])assert.throws(()=>createBrokerServer(options));
+});

@@ -6,8 +6,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ApiError, validateEmpty, validateUuid, validateClaim } from './protocol.mjs';
 
 export const isLoopback = host => ['127.0.0.1','::1','localhost'].includes(host);
-export function createBrokerServer({ store, auth, host='127.0.0.1', port=8787, insecureDevelopment=false, proxyLoopback=false, tls, pollIntervalMs=250, maxPolls=1000, requestRate=1200 }) {
-  if(!tls&&(!isLoopback(host)||(!insecureDevelopment&&!proxyLoopback)))throw new Error('Verified TLS is required; plaintext needs explicit loopback-only mode.');
+export function createBrokerServer({ store, auth, host='127.0.0.1', port=8787, insecureDevelopment=false, proxyLoopback=false, proxyTransport=false, tls, pollIntervalMs=250, maxPolls=1000, requestRate=1200 }) {
+  if([insecureDevelopment,proxyLoopback,proxyTransport].some(value=>typeof value!=='boolean'))throw new Error('Transport modes must be booleans.');
+  if(Number(insecureDevelopment)+Number(proxyLoopback)+Number(proxyTransport)+Number(Boolean(tls))>1)throw new Error('Select exactly one TLS or explicit plaintext transport mode.');
+  if(!tls&&!proxyTransport&&(!isLoopback(host)||(!insecureDevelopment&&!proxyLoopback)))throw new Error('Verified TLS is required; plaintext needs an explicit transport mode.');
+  if(proxyLoopback&&!isLoopback(host))throw new Error('Loopback proxy mode is loopback-only.');
   if(insecureDevelopment&&!isLoopback(host))throw new Error('Insecure development is loopback-only.');
   if(tls&&(!tls.certFile||!tls.keyFile))throw new Error('Both TLS certificate and key files are required.');
   const polls=new Map(),peers=new Map();let stopping=false;

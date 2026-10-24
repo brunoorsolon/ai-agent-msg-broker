@@ -1,0 +1,79 @@
+# User-published GitHub Release only. Manual dispatch is a read-only build/test dry run.
+# Version vX.Y.Z must match package.json. Initial image support: linux/amd64.
+name: Release image
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-image-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+  publish:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.19.0'
+      - name: Validate release version and exact tested source
+        id: plan
+        run: |
+          test "$(uname -m)" = x86_64
+          export CHECKOUT_COMMIT="$(git rev-parse HEAD)"
+          node scripts/release-plan.mjs
+      - name: Build tested runtime without registry credentials
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          REVISION: ${{ steps.plan.outputs.commit }}
+        run: |
+          docker build --platform linux/amd64 --target runtime -f Containerfile \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$REVISION" \
+            -t "$IMAGE:$VERSION" .
+          docker run --rm --network none --read-only \
+            --tmpfs /data:rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700 \
+            "$IMAGE:$VERSION" node scripts/container-empty-smoke.mjs
+      - name: Verify ordinary published-port image before registry login
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: bash scripts/docker-publish-smoke.sh "$IMAGE:$VERSION"
+      - name: Log in to GHCR only for this user-published release
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish version and optional stable latest tag
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          LATEST: ${{ steps.plan.outputs.latest }}
+        run: |
+          docker push "$IMAGE:$VERSION"
+          if [[ "$LATEST" == true ]]; then
+            docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
+          {
+            echo '## Published Linux/amd64 image'
+            printf '\n`docker pull %s:%s`\n' "$IMAGE" "$VERSION"
+            docker image inspect "$IMAGE:$VERSION" --format '{{json .RepoDigests}}'
+          } >> "$GITHUB_STEP_SUMMARY"
