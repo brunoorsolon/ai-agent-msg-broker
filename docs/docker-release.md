@@ -64,3 +64,7 @@ docker build --target runtime -f Containerfile -t broker-runtime:local .
 ```
 
 CI additionally exercises **ordinary `-p` host-to-container connectivity**, missing/invalid credential rejection, private nonroot storage and persistence across restart. This verifies the container boundary rather than merely curling container loopback. It does not certify any particular Nginx deployment or native agent connector.
+
+## Enroll native clients after the connectivity check
+
+Once HTTPS health succeeds from each client sandbox, use the [offline initial-enrollment guide](enrollment.md). It stages four separate credentials and native client bundles without changing the existing database, image, ports, or proxy. Creating and activating those credentials remains an explicit operator step.
