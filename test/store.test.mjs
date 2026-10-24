@@ -86,9 +86,32 @@ test('single writer, schema durability, safe backup restore and disk safety',asy
  let safe=true;const f=fixture(t,{diskCheck:()=>safe}),[a,b]=pair(f);const message=f.store.send(f.a.entry,a.client_id,1,'persist',sendBody(b.client_id));
  assert.throws(()=>new BrokerStore({path:f.path}),/locked/);
  assert.equal(f.store.db.prepare('PRAGMA synchronous').get().synchronous,2);assert.equal(f.store.db.prepare('PRAGMA journal_mode').get().journal_mode,'wal');
- const target=`${f.dir}/backup.sqlite`;await f.store.backup(target);const restored=new BrokerStore({path:target});t.after(()=>restored.close());
+ const target=`${f.dir}/backup.sqlite`;await f.store.backup(target);const restored=new BrokerStore({path:target,clock:()=>f.now});t.after(()=>restored.close());
  assert.equal(restored.session(f.a.entry,a.client_id).connected,false);assert.equal(restored.receipt(f.a.entry,a.client_id,message.message_id).delivery_state,'queued');
  safe=false;assert.equal(f.store.safe(),false);code(()=>f.store.send(f.a.entry,a.client_id,1,'unsafe',sendBody(b.client_id)),'storage_unavailable');
+});
+
+// Backup and restore must share logical time; never compare fixture mail to wall time.
+test('restored backup TTL is deterministic before and at expiry across fixture dates',async t=>{
+ for(const start of ['2000-01-01T00:00:00Z','2100-01-01T00:00:00Z']){
+  const f=fixture(t);f.advance(Date.parse(start)-f.now);const [a,b]=pair(f);
+  const body=sendBody(b.client_id,'saved',{ttl_seconds:60});
+  const sent=f.store.send(f.a.entry,a.client_id,1,'ttl-boundary',body);
+  const target=`${f.dir}/ttl-backup.sqlite`;await f.store.backup(target);
+  f.advance(30000); // Restoring an older snapshot must not restart its message TTL.
+  const restored=new BrokerStore({path:target,clock:()=>f.now});
+  try{
+   assert.equal(restored.session(f.a.entry,a.client_id).connected,false);
+   const pending=restored.receipt(f.a.entry,a.client_id,sent.message_id);
+   assert.equal(pending.delivery_state,'queued');assert.equal(pending.expires_at,sent.expires_at);
+   const connection=restored.register(f.a.entry,{...a,previous_epoch:1,connection_id:uuid()});
+   assert.deepEqual(restored.send(f.a.entry,a.client_id,connection.lease_epoch,'ttl-boundary',body),sent);
+   f.advance(29999);assert.equal(restored.receipt(f.a.entry,a.client_id,sent.message_id).delivery_state,'queued');
+   f.advance(1);const expired=restored.receipt(f.a.entry,a.client_id,sent.message_id);
+   assert.equal(expired.delivery_state,'expired');assert.equal(expired.terminal_at,sent.expires_at);
+   assert.equal(expired.delivery_uncertain,false);
+  }finally{restored.close();}
+ }
 });
 
 test('finite mailbox and byte bounds, unknown scopes, capability and sender protection',t=>{
