@@ -34,6 +34,18 @@ wrong client type: 403 `forbidden`; malformed/extra fields: 400 `invalid_request
 oversize: 413; rate/capacity: 429 `rate_limited`; storage: 503 `storage_unavailable`.
 Errors use the existing safe v1 envelope and `effect` semantics.
 
+Before reading a request body, a non-mutating preflight verifies possession of an
+active grant or a still-live consumed redemption. Missing, malformed and unknown
+credentials receive 401 with connection close without waiting for body completion.
+Authorized uploads have an explicit 10-second absolute body deadline (including
+slow trickles); expiration closes the connection without issuing or consuming a
+grant. The existing Node requestTimeout is also 10 seconds but is checked
+periodically, so it is not the sole upload bound. After reading the bounded body,
+authority and the complete legacy credential registry are refreshed immediately
+before synchronous redemption. Preflight never bypasses final expiry/revocation
+checks. An external operator-file rename and the SQLite transaction are not one
+cross-process atomic operation; the transaction uses the freshly read policy snapshot.
+
 For an uncertain result retry the original durable attempt, never generate another
 UUID/token. A saved token can also validate authenticated recipient discovery.
 Expired/revoked credentials need explicit re-pairing. Automatic renewal is not

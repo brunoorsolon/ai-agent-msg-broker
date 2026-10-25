@@ -22,12 +22,16 @@ export function createBrokerServer({ store, auth, enrollment, host='127.0.0.1', 
     const prior=peers.get(key)??{at:now,count:0};prior.count++;peers.set(key,prior);
     if(peers.size>10000||prior.count>(enrollmentOnly?Math.min(requestRate,20):requestRate))throw new ApiError(429,'rate_limited',null,{retryable:true,retry_after:60});
   }
-  async function body(req){
+  async function body(req,{absoluteTimeoutMs}={}){
     if(req.headers['content-encoding'])throw new ApiError(400,'invalid_request','headers.Content-Encoding');
     if(!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(req.headers['content-type']??''))throw new ApiError(400,'invalid_request','headers.Content-Type');
     if(Number(req.headers['content-length'])>store.limits.max_request_bytes)throw new ApiError(413,'payload_too_large');
     let size=0;const parts=[];
-    for await(const part of req){size+=part.length;if(size>store.limits.max_request_bytes)throw new ApiError(413,'payload_too_large');parts.push(part);}
+    // Node requestTimeout is periodically checked; this is a strict body deadline.
+    const deadline=absoluteTimeoutMs?setTimeout(()=>req.destroy(),absoluteTimeoutMs):undefined;
+    deadline?.unref();
+    try{for await(const part of req){size+=part.length;if(size>store.limits.max_request_bytes)throw new ApiError(413,'payload_too_large');parts.push(part);}}
+    finally{clearTimeout(deadline);}
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(parts)));}catch{throw new ApiError(400,'invalid_request','body');}
   }
   async function handler(req,res){
@@ -45,7 +49,9 @@ export function createBrokerServer({ store, auth, enrollment, host='127.0.0.1', 
         if(stopping)throw new ApiError(503,'not_ready',null,{retryable:true});
         if(req.headers.origin)throw new ApiError(403,'forbidden','headers.Origin');
         if(url.search)throw new ApiError(400,'invalid_request','query');
-        const input=await body(req);
+        try{enrollment.preflight(req.headers.authorization);}
+        catch(e){res.setHeader('Connection','close');throw e instanceof ApiError?e:new ApiError(503,'not_ready',null,{retryable:true});}
+        const input=await body(req,{absoluteTimeoutMs:10000});
         // Refresh after asynchronous upload; no await may separate policy snapshot and issuance.
         try{auth.reload();}catch{throw new ApiError(503,'not_ready',null,{retryable:true});}
         const issued=enrollment.redeem(req.headers.authorization,input,auth.configuredEntries);

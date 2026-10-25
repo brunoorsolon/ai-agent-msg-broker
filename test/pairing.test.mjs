@@ -111,3 +111,42 @@ test('policy changes during request upload are checked before issuance commit',a
  s.f.writeCreds([s.f.a.entry,{...s.f.b.entry,credential_id:'late-revoked',token_sha256:tokenHash,revoked:true}]);request.end(data.slice(20));
  assert.equal(await response,409);assert.equal(s.auth.authenticate(`Bearer ${s.f.a.token}`).credential_id,s.f.a.entry.credential_id);
 });
+
+test('pairing preflight rejects missing, malformed and unknown credentials before unfinished body',async t=>{
+ const http=await import('node:http');const s=setup(t),app=createBrokerServer({store:s.f.store,auth:s.auth,enrollment:s.enrollment,host:'127.0.0.1',port:0,insecureDevelopment:true});
+ const address=await app.listen();t.after(()=>app.close());
+ for(const header of [undefined,'Pairing malformed',`Pairing ${randomBytes(32).toString('base64url')}`]){
+   const started=Date.now();
+   const result=await new Promise((resolve,reject)=>{
+     const timer=setTimeout(()=>{request.destroy();reject(Error('preflight waited for body'));},2000);
+     const request=http.request({host:'127.0.0.1',port:address.port,path:'/v1/enrollments',method:'POST',headers:{...(header?{Authorization:header}:{}),'Content-Type':'application/json','Content-Length':'1000'}},response=>{
+       response.resume();response.on('end',()=>{clearTimeout(timer);request.destroy();resolve({status:response.statusCode,connection:response.headers.connection});});
+     });request.on('error',error=>{clearTimeout(timer);reject(error);});request.flushHeaders();
+   });
+   assert.equal(result.status,401);assert.equal(result.connection,'close');assert.ok(Date.now()-started<2000);
+ }
+ assert.equal(s.f.store.db.prepare('SELECT count(*) n FROM enrolled_credentials').get().n,0);
+});
+
+test('authorized slow-trickle enrollment upload has an absolute 10-second body deadline and consumes nothing',{timeout:15000},async t=>{
+ const http=await import('node:http');const s=setup(t),app=createBrokerServer({store:s.f.store,auth:s.auth,enrollment:s.enrollment,host:'127.0.0.1',port:0,insecureDevelopment:true});
+ const address=await app.listen();t.after(()=>app.close());const started=Date.now();
+ await new Promise(resolve=>{
+   const request=http.request({host:'127.0.0.1',port:address.port,path:'/v1/enrollments',method:'POST',headers:{Authorization:`Pairing ${s.pair.pairing_secret}`,'Content-Type':'application/json','Content-Length':'1000'}});
+   const trickle=setInterval(()=>request.write(' '),100);request.write('{');
+   request.on('error',()=>{});request.on('close',()=>{clearInterval(trickle);resolve();});
+ });
+ assert.ok(Date.now()-started>=9500);assert.ok(Date.now()-started<13000);
+ assert.equal(s.f.store.db.prepare('SELECT count(*) n FROM enrolled_credentials').get().n,0);
+ assert.equal(s.redeem().status,201);
+});
+
+test('pairing preflight is non-mutating and final redemption rechecks expiry and revocation',t=>{
+ const s=setup(t),header=`Pairing ${s.pair.pairing_secret}`;s.enrollment.preflight(header);
+ assert.equal(s.f.store.db.prepare('SELECT count(*) n FROM enrolled_credentials').get().n,0);
+ s.f.advance(600001);assert.throws(()=>s.redeem(),{code:'unauthenticated'});
+ const next=join(s.f.dir,'preflight-next.json');s.issue({outputFile:next});s.pair.pairing_secret=JSON.parse(readFileSync(next)).pairing_secret;
+ const issued=s.redeem();s.f.advance(600001);s.enrollment.preflight(`Pairing ${s.pair.pairing_secret}`);
+ revoke(s.policyFile,issued.result.credential_id);assert.throws(()=>s.redeem(),{code:'unauthenticated'});
+ assert.throws(()=>s.enrollment.preflight(`Pairing ${s.pair.pairing_secret}`),{code:'unauthenticated'});
+});
