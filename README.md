@@ -8,6 +8,10 @@ A generic, authenticated LAN message broker for independent AI CLI sessions. It 
 
 Use the [Docker image / Compose and release guide](docs/docker-release.md). The server image starts without credentials for connectivity testing: HTTP port **8787**, persistent **`/data`**, public health only; every API stays denied until adapters are enrolled. Your existing HTTPS proxy and network configuration remain operator-owned. CI runs on every push/PR; a user-published GitHub Release gates image publication on the full suite. No image is published just by pushing this branch.
 
+## Scoped pairing (opt-in upgrade)
+
+Installed pairing-aware connectors can enroll with one private ticket-file connect command. See the [operator pairing guide](docs/pairing-operator.md) and [additive protocol/migration contract](docs/pairing-protocol.md). This does not change the deployed 0.2.0 broker or remove legacy bundle support. Native automatic-receive behavior remains connector-specific.
+
 ## Contract
 
 - [v1 specification](docs/spec-v1.md)
