@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ApiError, validateEmpty, validateUuid, validateClaim } from './protocol.mjs';
 
 export const isLoopback = host => ['127.0.0.1','::1','localhost'].includes(host);
-export function createBrokerServer({ store, auth, host='127.0.0.1', port=8787, insecureDevelopment=false, proxyLoopback=false, proxyTransport=false, tls, pollIntervalMs=250, maxPolls=1000, requestRate=1200 }) {
+export function createBrokerServer({ store, auth, enrollment, host='127.0.0.1', port=8787, insecureDevelopment=false, proxyLoopback=false, proxyTransport=false, tls, pollIntervalMs=250, maxPolls=1000, requestRate=1200 }) {
   if([insecureDevelopment,proxyLoopback,proxyTransport].some(value=>typeof value!=='boolean'))throw new Error('Transport modes must be booleans.');
   if(Number(insecureDevelopment)+Number(proxyLoopback)+Number(proxyTransport)+Number(Boolean(tls))>1)throw new Error('Select exactly one TLS or explicit plaintext transport mode.');
   if(!tls&&!proxyTransport&&(!isLoopback(host)||(!insecureDevelopment&&!proxyLoopback)))throw new Error('Verified TLS is required; plaintext needs an explicit transport mode.');
@@ -16,11 +16,11 @@ export function createBrokerServer({ store, auth, host='127.0.0.1', port=8787, i
   const polls=new Map(),peers=new Map();let stopping=false;
   const reply=(res,status,value,headers={})=>{if(res.destroyed||res.writableEnded)return;res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});res.end(status===204?undefined:JSON.stringify(value));};
   const error=(res,e,id)=>{const known=e instanceof ApiError?e:new ApiError(503,'storage_unavailable',null,{retryable:true,effect:'unknown'});reply(res,known.status,known.toJSON(id),{'X-Request-ID':id,...(known.retry_after?{'Retry-After':String(known.retry_after)}:{})});};
-  function guardPeer(req){
-    const now=Date.now(),key=req.socket.remoteAddress??'unknown';
+  function guardPeer(req,enrollmentOnly=false){
+    const now=Date.now(),key=(req.socket.remoteAddress??'unknown')+(enrollmentOnly?':enrollment':'');
     for(const [address,entry] of peers)if(now-entry.at>60000)peers.delete(address);
     const prior=peers.get(key)??{at:now,count:0};prior.count++;peers.set(key,prior);
-    if(peers.size>10000||prior.count>requestRate)throw new ApiError(429,'rate_limited',null,{retryable:true,retry_after:60});
+    if(peers.size>10000||prior.count>(enrollmentOnly?Math.min(requestRate,20):requestRate))throw new ApiError(429,'rate_limited',null,{retryable:true,retry_after:60});
   }
   async function body(req){
     if(req.headers['content-encoding'])throw new ApiError(400,'invalid_request','headers.Content-Encoding');
@@ -39,6 +39,15 @@ export function createBrokerServer({ store, auth, host='127.0.0.1', port=8787, i
       if(req.method==='GET'&&url.pathname==='/readyz'){
         try{auth.reload();}catch{}
         return reply(res,!stopping&&auth.ready&&store.safe()?200:503,{status:!stopping&&auth.ready&&store.safe()?'ready':'not_ready'});
+      }
+      if(enrollment && url.pathname==='/v1/enrollments' && req.method==='POST'){
+        guardPeer(req,true);
+        if(stopping)throw new ApiError(503,'not_ready',null,{retryable:true});
+        if(req.headers.origin)throw new ApiError(403,'forbidden','headers.Origin');
+        if(url.search)throw new ApiError(400,'invalid_request','query');
+        try{auth.reload();}catch{throw new ApiError(503,'not_ready',null,{retryable:true});}
+        const issued=enrollment.redeem(req.headers.authorization,await body(req),auth.configuredEntries);
+        return reply(res,issued.status,issued.result);
       }
       const principal=auth.authenticate(req.headers.authorization); // all API routes, including unknown ones
       if(stopping)throw new ApiError(503,'not_ready',null,{retryable:true});
