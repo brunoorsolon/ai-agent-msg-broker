@@ -14,7 +14,7 @@ WORKDIR /app
 COPY --from=base /app /app
 COPY test ./test
 COPY fixtures ./fixtures
-COPY openapi.json ./
+COPY openapi.json compose.yaml Containerfile ./
 RUN openssl version && npm run check && npm test
 
 FROM base AS runtime
@@ -23,7 +23,7 @@ COPY --chown=node:node --chmod=0600 deploy/config.proxy-container.example.json /
 COPY --chown=node:node --chmod=0600 deploy/credentials.empty.json /run/broker/credentials.json
 LABEL org.opencontainers.image.title="AI Agent Message Broker" \
       org.opencontainers.image.description="Authenticated opaque message delivery to durable adapter inboxes" \
-      org.opencontainers.image.source="https://github.com/brunoorsolon/ai-agent-msg-broker" \
+      org.opencontainers.image.source="https://github.com/matuto-ai/psst" \
       org.opencontainers.image.licenses="MIT"
 USER node
 ENV NODE_ENV=production

@@ -14,3 +14,12 @@ test('manual dry run cannot publish and prereleases never update latest',()=>{
  const pre=releasePlan({...valid,tag:'v0.1.0-rc.1',packageVersion:'0.1.0-rc.1'});assert.equal(pre.latest,false);assert.equal(pre.tags.length,1);
  assert.throws(()=>releasePlan({...valid,tag:'v0.1.0-01',packageVersion:'0.1.0-01'}));
 });
+
+test('current release metadata uses the current repository and matching Compose image',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));
+ const plan=releasePlan({...valid,repository:'matuto-ai/psst',packageVersion:pkg.version,tag:`v${pkg.version}`});
+ assert.equal(plan.image,'ghcr.io/matuto-ai/psst');
+ assert.ok(readFileSync(new URL('../compose.yaml',import.meta.url),'utf8').includes(`${plan.image}:${pkg.version}`));
+ assert.ok(readFileSync(new URL('../Containerfile',import.meta.url),'utf8').includes('https://github.com/matuto-ai/psst'));
+});
