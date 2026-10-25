@@ -89,3 +89,18 @@ test('real HTTPS helper bounds slow-trickle deadline and oversized response, and
    if(current==='slow'){assert.ok(Date.now()-start<13000);assert.ok(Date.now()-start>=9500);}
  }
 });
+
+test('native private-input helper shares file retries without writing the pairing secret',async t=>{
+ const {connectPairingSecret}=await import('../reference/enrollment.mjs');
+ const {readdirSync}=await import('node:fs');
+ const s=setup(t),directory=join(s.f.dir,'native-input');let bodyFirst;
+ const options={directory,brokerUrl:'https://broker.example',clientType:'pi',pairingSecret:s.pair.pairing_secret};
+ const transport=async(_url,secret,body)=>{bodyFirst??=body;assert.equal(body,bodyFirst);const r=s.enrollment.redeem(`Pairing ${secret}`,JSON.parse(body));return{status:r.status,body:r.result};};
+ await assert.rejects(connectPairingSecret(options,{transport:async(...args)=>{await transport(...args);throw Error(options.pairingSecret);}}),e=>e.code==='enrollment_local_error'&&!e.message.includes(options.pairingSecret));
+ const result=await connectPairingSecret(options,{transport});
+ assert.deepEqual(await connectPairingFile({pairingFile:s.pairingFile,directory,clientType:'pi'},{transport}),result);
+ const scan=path=>{for(const entry of readdirSync(path,{withFileTypes:true})){const child=join(path,entry.name);if(entry.isDirectory())scan(child);else assert.equal(readFileSync(child).includes(Buffer.from(options.pairingSecret)),false);}};
+ scan(directory);
+ assert.equal(readEnrollmentReceipt({connectionFile:result.connectionFile,clientType:'pi'}).credentialId,result.credentialId);
+ for(const change of [{pairingSecret:'short'},{brokerUrl:'http://broker.example'},{clientType:'wrong'}]) await assert.rejects(connectPairingSecret({...options,...change},{transport:()=>{throw Error('must not request');}}));
+});
