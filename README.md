@@ -10,7 +10,7 @@ Use the [Docker image / Compose and release guide](docs/docker-release.md). The 
 
 ## Scoped pairing (opt-in upgrade)
 
-Installed pairing-aware connectors can enroll with one private ticket-file connect command. See the [operator pairing guide](docs/pairing-operator.md) and [additive protocol/migration contract](docs/pairing-protocol.md). This does not change the deployed 0.2.0 broker or remove legacy bundle support. Native automatic-receive behavior remains connector-specific.
+Installed pairing-aware connectors can enroll with one private ticket-file connect command. See the [operator pairing guide](docs/pairing-operator.md) and [additive protocol/migration contract](docs/pairing-protocol.md). Available in broker 0.3.0; upgrading is an operator action and legacy bundle support remains. Native automatic-receive behavior remains connector-specific.
 
 ## Contract
 

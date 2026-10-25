@@ -4,15 +4,15 @@ The normal server package is a **Linux/amd64** image, with Node 24.19.0 and SQLi
 
 ## Pull and run
 
-**The image is not published by a source-code push.** These commands become available after the operator publishes GitHub Release `v0.1.0` from the reviewed implementation (see below). Expected image: `ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0`.
+**The image is not published by a source-code push.** Use these commands after GitHub Release `v0.3.0` has completed its Release image workflow successfully. Versioned image: `ghcr.io/matuto-ai/psst:0.3.0`.
 
 ```sh
-docker pull ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0
+docker pull ghcr.io/matuto-ai/psst:0.3.0
 docker run -d --name ai-agent-msg-broker --restart unless-stopped \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
   -p 127.0.0.1:8787:8787 \
   -v ai-agent-msg-broker-data:/data \
-  ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0
+  ghcr.io/matuto-ai/psst:0.3.0
 curl --fail --show-error --max-time 5 http://127.0.0.1:8787/healthz
 ```
 
@@ -43,8 +43,8 @@ To enroll adapters later, mount a dedicated private directory containing `config
 
 ## Publish a release — operator action
 
-1. Review/merge the implementation when desired; this change does not merge the draft PR. The release commit must contain these workflows and the intended source, not the current specification-only `main`.
-2. Keep `package.json` version and release tag aligned: current version `0.1.0` requires tag **`v0.1.0`**. For another version, update `package.json`, test and commit it first.
+1. Review and merge the release preparation PR. Select that exact reviewed commit for the release.
+2. Keep `package.json` version and release tag aligned: current version `0.3.0` requires tag **`v0.3.0`**. For another version, update `package.json`, test and commit it first.
 3. In GitHub, publish the release at the reviewed commit. Publishing, not merely saving a draft or pushing a tag, triggers **Release image**.
 4. The workflow runs **all** ordinary CI jobs against the immutable release event commit: full test suite, syntax, Docker, rootless Podman, copied-runtime and connectivity checks. Only after success does it build/smoke/push the Linux/amd64 image using the repository's short-lived `GITHUB_TOKEN` with `packages: write`. No registry secret setup is required for this workflow.
 5. Stable releases publish `:VERSION` and `:latest`; prereleases publish only `:VERSION`. The run summary records pull command and image digest. Prefer a version/digest for deployment. Published version tags should not be reused for different source.
@@ -53,7 +53,7 @@ GHCR's first package may initially be private even for a public repository. The 
 
 **CI** runs on every push and pull request and never publishes. **Release image** runs on `release: published`; its manual action is a **build/test-only dry run** with no registry login, package write or push. No workflow creates a release/tag or deploys a server. The manual action becomes selectable once its workflow exists on the default branch. Release behavior follows [GitHub's release event semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
 
-The workflows are a small adaptation of the operator-supplied [Forge Desk release](https://github.com/brunoorsolon/forge-desk/blob/main/.github/workflows/release.yml) and [CI](https://github.com/brunoorsolon/forge-desk/blob/main/.github/workflows/ci.yml), not a copy of its application/matrix pipeline. Registry publication itself remains unexecuted until the operator publishes a release.
+The workflows are a small adaptation of the operator-supplied [Forge Desk release](https://github.com/brunoorsolon/forge-desk/blob/main/.github/workflows/release.yml) and [CI](https://github.com/brunoorsolon/forge-desk/blob/main/.github/workflows/ci.yml), not a copy of its application/matrix pipeline. Registry publication requires a published release and a successful gated workflow.
 
 ## Build before a release exists
 

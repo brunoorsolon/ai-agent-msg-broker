@@ -1,6 +1,6 @@
 services:
   broker:
-    image: ${BROKER_IMAGE:-ghcr.io/brunoorsolon/ai-agent-msg-broker:0.1.0}
+    image: ${BROKER_IMAGE:-ghcr.io/matuto-ai/psst:0.3.0}
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]

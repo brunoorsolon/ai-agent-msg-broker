@@ -23,7 +23,7 @@ COPY --chown=node:node --chmod=0600 deploy/config.proxy-container.example.json /
 COPY --chown=node:node --chmod=0600 deploy/credentials.empty.json /run/broker/credentials.json
 LABEL org.opencontainers.image.title="AI Agent Message Broker" \
       org.opencontainers.image.description="Authenticated opaque message delivery to durable adapter inboxes" \
-      org.opencontainers.image.source="https://github.com/brunoorsolon/ai-agent-msg-broker" \
+      org.opencontainers.image.source="https://github.com/matuto-ai/psst" \
       org.opencontainers.image.licenses="MIT"
 USER node
 ENV NODE_ENV=production
