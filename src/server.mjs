@@ -45,8 +45,10 @@ export function createBrokerServer({ store, auth, enrollment, host='127.0.0.1', 
         if(stopping)throw new ApiError(503,'not_ready',null,{retryable:true});
         if(req.headers.origin)throw new ApiError(403,'forbidden','headers.Origin');
         if(url.search)throw new ApiError(400,'invalid_request','query');
+        const input=await body(req);
+        // Refresh after asynchronous upload; no await may separate policy snapshot and issuance.
         try{auth.reload();}catch{throw new ApiError(503,'not_ready',null,{retryable:true});}
-        const issued=enrollment.redeem(req.headers.authorization,await body(req),auth.configuredEntries);
+        const issued=enrollment.redeem(req.headers.authorization,input,auth.configuredEntries);
         return reply(res,issued.status,issued.result);
       }
       const principal=auth.authenticate(req.headers.authorization); // all API routes, including unknown ones

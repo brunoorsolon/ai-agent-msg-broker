@@ -100,3 +100,14 @@ test('finite grant and live issuance caps fail without consuming pending grant',
  s.f.store.tx(()=>{for(let i=0;i<1000;i++)s.f.store.db.prepare('INSERT INTO enrolled_credentials VALUES(?,?,?,?,?,?,?,?)').run('synthetic-'+i,'synthetic-'+i,'{}','synthetic-'+i,'synthetic-'+i,'{}','{}',expires);});
  assert.throws(()=>s.redeem(),e=>e.code==='rate_limited');assert.equal(s.f.store.db.prepare('SELECT count(*) n FROM enrolled_credentials WHERE grant_hash=?').get(secretHash(s.pair.pairing_secret)).n,0);
 });
+
+test('policy changes during request upload are checked before issuance commit',async t=>{
+ const http=await import('node:http');const s=setup(t),tokenHash=secretHash(randomBytes(32));
+ const app=createBrokerServer({store:s.f.store,auth:s.auth,enrollment:s.enrollment,host:'127.0.0.1',port:0,insecureDevelopment:true});const address=await app.listen();t.after(()=>app.close());
+ const data=JSON.stringify({...s.request,token_sha256:tokenHash});let arrived;
+ const started=new Promise(r=>arrived=r);app.server.once('request',arrived);
+ let request;const response=new Promise((resolve,reject)=>{request=http.request({host:'127.0.0.1',port:address.port,path:'/v1/enrollments',method:'POST',headers:{Authorization:`Pairing ${s.pair.pairing_secret}`,'Content-Type':'application/json','Content-Length':Buffer.byteLength(data)}},r=>{r.resume();r.on('end',()=>resolve(r.statusCode));});request.on('error',reject);});
+ request.write(data.slice(0,20));await started;
+ s.f.writeCreds([s.f.a.entry,{...s.f.b.entry,credential_id:'late-revoked',token_sha256:tokenHash,revoked:true}]);request.end(data.slice(20));
+ assert.equal(await response,409);assert.equal(s.auth.authenticate(`Bearer ${s.f.a.token}`).credential_id,s.f.a.entry.credential_id);
+});
