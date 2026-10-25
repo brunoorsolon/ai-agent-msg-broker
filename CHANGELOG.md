@@ -18,7 +18,7 @@ The first automatic-receive test with existing Pi/Claude connection bundles does
 connector releases, not this server release; live native acceptance remains a
 separate test, and native acceptance is not proof that the model read a message.
 
-Published server image: `ghcr.io/matuto-ai/psst:0.3.0` (Linux/amd64). Wait for the
+Release image (after publication): `ghcr.io/matuto-ai/psst:0.3.0` (Linux/amd64). Wait for the
 release workflow to finish before pulling. Keep the existing Compose project,
 volumes, private configuration mounts, TLS proxy and credentials: do not replace
 an existing deployment with the stock connectivity-only Compose example.
