@@ -95,7 +95,7 @@ function pointer(document, fragment) {
 }
 
 test('OpenAPI contains every public route and resolves all internal references', () => {
-  const expected = ['/healthz', '/readyz', '/v1/sessions', '/v1/sessions/{client_id}', '/v1/sessions/{client_id}/heartbeat', '/v1/sessions/{client_id}/metadata', '/v1/sessions/{client_id}/close', '/v1/clients', '/v1/messages', '/v1/messages/{message_id}', '/v1/mailbox/claim', '/v1/mailbox/{message_id}/renew', '/v1/mailbox/{message_id}/complete'];
+  const expected = ['/v1/enrollments', '/healthz', '/readyz', '/v1/sessions', '/v1/sessions/{client_id}', '/v1/sessions/{client_id}/heartbeat', '/v1/sessions/{client_id}/metadata', '/v1/sessions/{client_id}/close', '/v1/clients', '/v1/messages', '/v1/messages/{message_id}', '/v1/mailbox/claim', '/v1/mailbox/{message_id}/renew', '/v1/mailbox/{message_id}/complete'];
   assert.deepEqual(Object.keys(api.paths).sort(), expected.sort());
   function walk(value) {
     if (!value || typeof value !== 'object') return;
@@ -103,7 +103,7 @@ test('OpenAPI contains every public route and resolves all internal references',
     for (const v of Object.values(value)) walk(v);
   }
   walk(api);
-  for (const schema of ['Registration', 'MetadataMutation', 'Send', 'Completion', 'ClaimRequest', 'RenewRequest', 'Envelope']) assert.equal(api.components.schemas[schema].additionalProperties, false);
+  for (const schema of ['Registration', 'MetadataMutation', 'Send', 'Completion', 'ClaimRequest', 'RenewRequest', 'Envelope', 'EnrollmentRequest']) assert.equal(api.components.schemas[schema].additionalProperties, false);
 });
 
 test('structured errors contain exact safe field references and retry/effect semantics', () => {

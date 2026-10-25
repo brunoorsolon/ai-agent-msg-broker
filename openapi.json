@@ -2667,6 +2667,175 @@
           }
         }
       }
+    },
+    "/v1/enrollments": {
+      "post": {
+        "operationId": "redeemPairingGrant",
+        "description": "Optional operator-enabled scoped enrollment. Identical retries reconcile after grant expiry only while issued credential remains valid. No anonymous issuance or automatic renewal.",
+        "security": [
+          {
+            "PairingAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Bounded structured error; inspect code, retryable, effect and action.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Delay in seconds when rate/storage backoff applies."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Identical prior redemption reconciled without extending expiry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResult"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Unique installation credential verifier issued; plaintext token stays client-side.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResult"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2675,6 +2844,12 @@
         "type": "http",
         "scheme": "bearer",
         "description": "Distinct enrolled high-entropy adapter credential; server-controlled principal/adapter/type/scope. Never expose tokens to model tools or URLs."
+      },
+      "PairingAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Pairing <43-character base64url one-use operator-issued secret>. Never put secrets in URLs or command arguments."
       }
     },
     "parameters": {
@@ -3855,6 +4030,83 @@
         "required": [
           "status"
         ]
+      },
+      "EnrollmentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enrollment_id",
+          "client_type",
+          "token_sha256"
+        ],
+        "properties": {
+          "enrollment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "client_type": {
+            "type": "string",
+            "enum": [
+              "pi",
+              "claude-code",
+              "opencode",
+              "antigravity-cli"
+            ]
+          },
+          "token_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 of locally persisted random 32-byte bearer token; never send plaintext token here."
+          }
+        }
+      },
+      "EnrollmentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "credential_id",
+          "adapter_id",
+          "client_type",
+          "scopes",
+          "expires_at",
+          "protocol_version"
+        ],
+        "properties": {
+          "credential_id": {
+            "type": "string",
+            "pattern": "^enrolled-[0-9a-f-]{36}$"
+          },
+          "adapter_id": {
+            "type": "string",
+            "pattern": "^installation-[0-9a-f-]{36}$"
+          },
+          "client_type": {
+            "type": "string",
+            "enum": [
+              "pi",
+              "claude-code",
+              "opencode",
+              "antigravity-cli"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "pattern": "^[-a-zA-Z0-9_.]{1,128}$"
+            }
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "protocol_version": {
+            "type": "string",
+            "const": "1"
+          }
+        }
       }
     }
   }

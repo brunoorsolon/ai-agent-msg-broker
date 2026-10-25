@@ -66,7 +66,7 @@ export class BrokerStore {
   }
   migrate() {
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 2) throw new Error('Unsupported database schema version.');
+    if (version > 3) throw new Error('Unsupported database schema version.');
     this.db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, principal TEXT NOT NULL, adapter TEXT NOT NULL, instance TEXT NOT NULL,
@@ -100,7 +100,7 @@ export class BrokerStore {
     this.db.exec('BEGIN IMMEDIATE');
     try{
       if(!this.db.prepare('PRAGMA table_info(messages)').all().some(c=>c.name==='claim_prior_uncertain'))this.db.exec('ALTER TABLE messages ADD COLUMN claim_prior_uncertain INTEGER NOT NULL DEFAULT 0');
-      this.db.exec('PRAGMA user_version=2; COMMIT');
+      this.db.exec(`PRAGMA user_version=${Math.max(version, 2)}; COMMIT`);
     }catch(e){this.db.exec('ROLLBACK');throw e;}
   }
   tx(fn) {
