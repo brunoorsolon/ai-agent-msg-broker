@@ -49,6 +49,20 @@ export class EnrollmentService {
     return this.store.db.prepare('SELECT entry FROM enrolled_credentials WHERE expires>?').all(now)
       .map(row => JSON.parse(row.entry)).filter(c => !p.revoked_credentials.includes(c.credential_id));
   }
+  // Cheap possession check before accepting an upload. Never consumes or issues.
+  preflight(header) {
+    const match=typeof header==='string'&&/^Pairing ([A-Za-z0-9_-]{43})$/.exec(header);
+    if(!match)throw new ApiError(401,'unauthenticated','headers.Authorization');
+    const hash=secretHash(match[1]),p=this.policy(),now=this.store.clock();
+    const prior=this.store.db.prepare('SELECT credential_id,expires FROM enrolled_credentials WHERE grant_hash=?').get(hash);
+    if(prior){
+      if(prior.expires>now&&!p.revoked_credentials.includes(prior.credential_id))return;
+      throw new ApiError(401,'unauthenticated');
+    }
+    let grant;
+    for(const g of p.grants)if(timingSafeEqual(Buffer.from(hash,'hex'),Buffer.from(g.secret_sha256,'hex')))grant=g;
+    if(!grant||Date.parse(grant.expires_at)<=now||Date.parse(grant.credential_expires_at)<=now)throw new ApiError(401,'unauthenticated');
+  }
   redeem(header, input, existingCredentials = []) {
     const match = typeof header === 'string' && /^Pairing ([A-Za-z0-9_-]{43})$/.exec(header);
     if (!match) throw new ApiError(401, 'unauthenticated', 'headers.Authorization');
