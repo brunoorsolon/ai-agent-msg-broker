@@ -67,9 +67,10 @@ test('HTTP admin form login rotates session; CSRF/origin, denied auth, logout an
  const app=createBrokerServer({...s,admin,host:'127.0.0.1',port:0,insecureDevelopment:true});
  const address=await app.listen(),base=`http://127.0.0.1:${address.port}`;t.after(()=>app.close());
  assert.equal((await fetch(base+'/',{redirect:'manual'})).headers.get('location'),'/admin');
- let r=await fetch(base+'/admin');let html=await r.text();const csrf=/name="csrf" value="([^"]+)"/.exec(html)[1],cookie=r.headers.get('set-cookie').split(';')[0];
+ let r=await fetch(base+'/admin');assert.equal(r.headers.get('referrer-policy'),'same-origin');let html=await r.text();const csrf=/name="csrf" value="([^"]+)"/.exec(html)[1],cookie=r.headers.get('set-cookie').split(';')[0];
  const post=(path,body,c=cookie,origin=base)=>fetch(base+path,{method:'POST',redirect:'manual',headers:{cookie:c,origin,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body)});
  assert.equal((await post('/admin/login',{csrf,password},cookie,'https://evil.example')).status,403);
+ assert.equal((await post('/admin/login',{csrf,password},cookie,'null')).status,403);
  assert.equal((await post('/admin/login',{csrf:'wrong',password})).status,403);
  assert.equal((await post('/admin/login',{csrf,password:'wrong'})).status,401);
  r=await post('/admin/login',{csrf,password});assert.equal(r.status,303);const logged=r.headers.get('set-cookie').split(';')[0];assert.notEqual(logged,cookie);
@@ -143,4 +144,22 @@ test('admin listing keeps old active credentials reachable and paginates without
  const page=await fetch(base+'/admin',{headers:{cookie}}),html=await page.text();assert.match(html,/Refresh requests/);assert.match(html,/\/admin\?page=1/);assert.ok(html.includes(c.body.request_id));
  assert.equal((await fetch(base+'/admin?page=1',{headers:{cookie}})).status,200);
  assert.equal((await fetch(base+'/admin?page=-1',{headers:{cookie}})).status,400);
+});
+test('helper exposes bounded Retry-After and persists shared backoff without changing UUID/key',async t=>{
+ const s=await setup(t),base={brokerUrl:'https://broker.example',clientType:'pi'};
+ for(const [header,expected] of [['60',60000],['999999',300000],['nonsense',60000]]){
+  const opts={...base,directory:join(s.dir,'retry-'+expected+'-'+header)},seen=[];
+  const transport=async(_url,_method,_path,key,body)=>{seen.push({key,body});return{status:429,retryAfter:header,body:{error:{code:'rate_limited',effect:'not_applied'}}};};
+  await assert.rejects(beginApproval(opts,{transport}),e=>e.code==='rate_limited'&&e.retryable&&e.retryAfterMs===expected&&e.effect==='not_applied');
+  const saved=readApprovalState(opts);assert.equal(saved.requestId,seen[0].body.request_id);
+  await assert.rejects(beginApproval(opts,{transport}),e=>e.retryAfterMs<=expected&&e.retryAfterMs>expected-1000);
+  await assert.rejects(pollApproval(opts,{transport}),e=>e.retryAfterMs<=expected);
+  assert.equal(seen.length,1,'shared persisted backoff blocks further HTTP');
+  const attempt=join(opts.directory,'approvals',createHash('sha256').update(base.brokerUrl+'\0pi').digest('hex'),saved.requestId,'attempt.json');
+  const state=JSON.parse(readFileSync(attempt));state.retryAt=Date.now()-1;writeFileSync(attempt,JSON.stringify(state));
+  await assert.rejects(beginApproval(opts,{transport}),e=>e.code==='rate_limited');
+  assert.deepEqual(seen[1],seen[0]);
+ }
+ const opts={...base,directory:join(s.dir,'temporary-server')};
+ await assert.rejects(beginApproval(opts,{transport:async()=>({status:503,body:{error:{code:'not_ready',effect:'unknown'}}})}),e=>e.retryAfterMs===5000&&e.effect==='unknown');
 });

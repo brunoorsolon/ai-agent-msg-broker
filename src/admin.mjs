@@ -42,7 +42,7 @@ export class AdminUI {
     });
   }
   cookie(session){return `psst_admin=${session?.cookie??''}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${session?Math.max(0,Math.floor((session.expires-this.store.clock())/1000)):0}${this.insecureDevelopment?'':'; Secure'}`;}
-  headers(){return {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",'Referrer-Policy':'no-referrer'};}
+  headers(){return {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",'Referrer-Policy':'same-origin'};}
   html(res,status,content,session){
     res.writeHead(status,{...this.headers(),...(session?{'Set-Cookie':this.cookie(session)}:{})});
     res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Psst administration</title><style>body{font:16px system-ui;max-width:960px;margin:3rem auto;padding:1rem;background:#101820;color:#f3f5f7}input,button{font:inherit;padding:.6rem;margin:.3rem}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.8rem;border-bottom:1px solid #53616b}form{display:inline}code{overflow-wrap:anywhere}small{color:#b9c8d3}</style><main><h1>Psst</h1>${content}</main></html>`);

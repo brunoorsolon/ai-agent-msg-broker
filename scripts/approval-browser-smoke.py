@@ -43,12 +43,16 @@ def main():
                 field.fill("synthetic-wrong-password")
                 with page.expect_response(lambda r: r.url.endswith("/admin/login") and r.request.method == "POST") as invalid:
                     page.locator('form[action="/admin/login"]').locator('button, input[type="submit"]').first.click()
-                assert invalid.value.status in (401, 403)
+                assert invalid.value.request.headers.get("origin") == origin, "Browser form must retain the exact same-origin Origin header"
+                assert invalid.value.status == 401, "Wrong password must reach password verification, not fail the Origin/CSRF guard"
                 page.goto(origin + "/admin")
                 field = page.locator('input[name="password"]')
                 before_login = {c["name"]: c["value"] for c in context.cookies(origin + "/admin")}
                 field.fill(password)
-                page.locator('form[action="/admin/login"]').locator('button, input[type="submit"]').first.click()
+                with page.expect_response(lambda r: r.url.endswith("/admin/login") and r.request.method == "POST") as valid:
+                    page.locator('form[action="/admin/login"]').locator('button, input[type="submit"]').first.click()
+                assert valid.value.request.headers.get("origin") == origin
+                assert valid.value.status == 303, "Valid login must redirect to the authenticated admin page"
                 page.wait_for_url(origin + "/admin")
                 page.locator('[data-request-id="' + ids[0] + '"]').wait_for()
                 cookies = context.cookies(origin + "/admin")

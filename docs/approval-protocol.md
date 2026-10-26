@@ -56,3 +56,11 @@ Terminal status replay remains available for30days; after removal no messaging
 authority is restored and explicit setup is needed. Admin sessions expire after8h
 and restart requires login again. Helper errors expose sanitized code/effect/
 retryable only; transport, ownership-busy and429/503 can retry the same request.
+
+Retryable helper errors include `retryAfterMs` (1000–300000ms). Honor this delay;
+429 defaults to60seconds,503 to5seconds, transport/ownership contention to2seconds.
+Retry-After is parsed from the HTTPS response and the bounded cooldown is saved
+privately across processes. An active explicit setup may retry its initial POST
+with the SAME UUID/key; normal startup still performs GET only. If the first POST
+never reached the broker, require explicit continuation instead of creating a
+request automatically. Unknown outcomes never generate replacement identities.

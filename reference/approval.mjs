@@ -6,7 +6,7 @@ import https from 'node:https';
 import { DatabaseSync } from 'node:sqlite';
 
 const TYPES = ['pi','claude-code','opencode','antigravity-cli'];
-const fail = (code, effect = 'not_applied', retryable=false) => { const e = new Error(code); Object.assign(e,{code,effect,retryable}); throw e; };
+const fail = (code, effect = 'not_applied', retryable=false, retryAfterMs=2000) => { const e = new Error(code); Object.assign(e,{code,effect,retryable,...(retryable?{retryAfterMs:Math.max(1000,Math.min(300000,Math.ceil(retryAfterMs)))}:{})}); throw e; };
 const hash = value => createHash('sha256').update(value).digest('hex');
 function privateDir(path) {
   if (!isAbsolute(path)) fail('private_directory_required');
@@ -73,12 +73,12 @@ export function readApprovalState(options) {
 function request(broker,method,path,token,input) {
   return new Promise((resolvePromise,reject)=>{
     const body=input===undefined?undefined:JSON.stringify(input);
-    const transportError=()=>Object.assign(new Error('approval_transport_error'),{code:'approval_transport_error',effect:'unknown',retryable:true});
+    const transportError=()=>Object.assign(new Error('approval_transport_error'),{code:'approval_transport_error',effect:'unknown',retryable:true,retryAfterMs:2000});
     const req=https.request(new URL(path,broker),{method,headers:{Authorization:`Enrollment ${token}`,...(body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}:{})}},res=>{
       let size=0;const chunks=[];
       res.on('data',chunk=>{size+=chunk.length;if(size>16384)res.destroy();else chunks.push(chunk);});
       res.on('error',()=>reject(transportError()));
-      res.on('end',()=>{try{resolvePromise({status:res.statusCode,body:JSON.parse(Buffer.concat(chunks).toString('utf8'))});}catch{reject(Object.assign(new Error('invalid_response'),{code:'invalid_response',effect:'unknown',retryable:false}));}});
+      res.on('end',()=>{try{resolvePromise({status:res.statusCode,retryAfter:res.headers['retry-after'],body:JSON.parse(Buffer.concat(chunks).toString('utf8'))});}catch{reject(Object.assign(new Error('invalid_response'),{code:'invalid_response',effect:'unknown',retryable:false}));}});
     });
     const timer=setTimeout(()=>req.destroy(),10000);req.on('close',()=>clearTimeout(timer));
     req.on('error',()=>reject(transportError()));req.end(body);
@@ -132,6 +132,7 @@ async function operate(options,begin,{transport=request,pollIntervalMs=2000}={})
     if(!item)fail('approval_setup_required');
     if(item.state.state!=='pending')return visible(item);
     const s=item.state;
+    if(Number.isFinite(s.retryAt)&&s.retryAt>Date.now()&&s.retryAt-Date.now()<=300000)fail(s.retryCode??'rate_limited',s.retryEffect??'unknown',true,s.retryAt-Date.now());
     if(!begin){
       const now=Date.now();
       if(Number.isFinite(s.lastPollAt)&&now>=s.lastPollAt&&now-s.lastPollAt<pollIntervalMs)return visible(item);
@@ -141,8 +142,16 @@ async function operate(options,begin,{transport=request,pollIntervalMs=2000}={})
     const response=await transport(loc.broker,begin?'POST':'GET',path,s.token,begin?{request_id:s.requestId,client_type:s.clientType,label:s.label}:undefined);
     if(![200,201].includes(response.status)){
       const code=response.body?.error?.code;
-      fail(['unauthenticated','forbidden','invalid_request','idempotency_conflict','rate_limited','not_ready','storage_unavailable'].includes(code)?code:'invalid_response',response.body?.error?.effect==='not_applied'?'not_applied':'unknown',[429,503].includes(response.status));
+      let retryAfterMs=response.status===429?60000:5000;
+      if(typeof response.retryAfter==='string'){
+        const seconds=/^[0-9]{1,6}$/.test(response.retryAfter)?Number(response.retryAfter):NaN;
+        const parsed=Number.isFinite(seconds)?seconds*1000:Date.parse(response.retryAfter)-Date.now();
+        if(Number.isFinite(parsed))retryAfterMs=Math.max(1000,Math.min(300000,Math.ceil(parsed)));
+      }
+      if([429,503].includes(response.status)){s.retryAt=Date.now()+retryAfterMs;s.retryCode=code==='not_ready'||code==='storage_unavailable'?code:'rate_limited';s.retryEffect=response.body?.error?.effect==='not_applied'?'not_applied':'unknown';save(join(item.dir,'attempt.json'),JSON.stringify(s)+'\n');}
+      fail(['unauthenticated','forbidden','invalid_request','idempotency_conflict','rate_limited','not_ready','storage_unavailable'].includes(code)?code:'invalid_response',response.body?.error?.effect==='not_applied'?'not_applied':'unknown',[429,503].includes(response.status),retryAfterMs);
     }
+    delete s.retryAt;delete s.retryCode;delete s.retryEffect;
     return publish(item,response.body,loc.broker,options.clientType);
   }catch(e){sanitized(e);}finally{try{lock?.close();}catch{}}
 }
