@@ -28,7 +28,7 @@ jobs:
       - run: npm test
   container:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -50,9 +50,38 @@ jobs:
         run: bash scripts/docker-publish-smoke.sh broker-runtime:ci
       - name: Validate Compose packaging without starting another service
         run: docker compose -f compose.yaml config --quiet
+      - name: Install pinned browser QA tools in an isolated CI virtualenv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/approval-browser"
+          "$RUNNER_TEMP/approval-browser/bin/pip" install playwright==1.62.0
+          "$RUNNER_TEMP/approval-browser/bin/playwright" install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libnss3-tools
+          echo "$RUNNER_TEMP/approval-browser/bin" >> "$GITHUB_PATH"
+      - name: Check out immutable pre-approval broker for real schema3 migration
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: bd2dd445de4bf3105f20caafb471f280bf981b63
+          path: .legacy-broker-source
+          persist-credentials: false
+      - name: Build prior runtime locally without registry publication
+        run: docker build --target runtime -f .legacy-broker-source/Containerfile -t broker-legacy:ci .legacy-broker-source
+      - name: Test ordinary Compose admin UI and persistent approval bootstrap
+        run: bash scripts/approval-compose-smoke.sh broker-runtime:ci
+        env:
+          APPROVAL_TEST_LEGACY_IMAGE: broker-legacy:ci
+          APPROVAL_TEST_ARTIFACTS: ${{ runner.temp }}/approval-ui-compose
+      - name: Keep sanitized actual-browser UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: approval-ui-compose
+          path: ${{ runner.temp }}/approval-ui-compose/*.png
+          if-no-files-found: warn
+          retention-days: 7
   rootless-podman:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -79,3 +108,32 @@ jobs:
         run: node scripts/local-broker-bootstrap-smoke.mjs localhost/broker-podman:ci
       - name: Verify host HTTPS from a separate rootless container without host-loopback exception
         run: node scripts/lan-broker-bootstrap-smoke.mjs localhost/broker-podman:ci
+      - name: Install pinned browser QA tools in an isolated CI virtualenv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/approval-browser"
+          "$RUNNER_TEMP/approval-browser/bin/pip" install playwright==1.62.0
+          "$RUNNER_TEMP/approval-browser/bin/playwright" install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libnss3-tools
+          echo "$RUNNER_TEMP/approval-browser/bin" >> "$GITHUB_PATH"
+      - name: Check out immutable pre-approval broker for real schema3 migration
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: bd2dd445de4bf3105f20caafb471f280bf981b63
+          path: .legacy-broker-source
+          persist-credentials: false
+      - name: Build prior runtime locally without registry publication
+        run: podman build --target runtime -f .legacy-broker-source/Containerfile -t localhost/broker-legacy:ci .legacy-broker-source
+      - name: Test rootless product admin UI and recreated data-volume approval
+        run: node scripts/approval-container-smoke.mjs podman localhost/broker-podman:ci
+        env:
+          APPROVAL_TEST_LEGACY_IMAGE: localhost/broker-legacy:ci
+          APPROVAL_TEST_ARTIFACTS: ${{ runner.temp }}/approval-ui-podman
+      - name: Keep sanitized rootless actual-browser UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: approval-ui-podman
+          path: ${{ runner.temp }}/approval-ui-podman/*.png
+          if-no-files-found: warn
+          retention-days: 7
