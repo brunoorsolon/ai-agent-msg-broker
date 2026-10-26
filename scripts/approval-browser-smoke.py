@@ -4,7 +4,21 @@ import os
 import pathlib
 import subprocess
 import tempfile
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError, sync_playwright
+
+
+def initial_login_page(page, url):
+    """Retry only initial read-only navigation after a transient route change."""
+    for attempt in range(3):
+        try:
+            return page.goto(url)
+        except PlaywrightError as error:
+            # Chromium's exact initial-navigation network change, not TLS,
+            # timeout, authentication, assertions or any form POST/action.
+            if not str(error).startswith("Page.goto: net::ERR_NETWORK_CHANGED at ") or attempt == 2:
+                raise
+            print("Initial read-only login GET interrupted by network change; retrying.", flush=True)
+            page.wait_for_timeout(250)
 
 
 def main():
@@ -33,7 +47,7 @@ def main():
             try:
                 context = browser.new_context(ignore_https_errors=False)
                 page = context.new_page()
-                response = page.goto(origin + "/admin")
+                response = initial_login_page(page, origin + "/admin")
                 assert response and response.status == 200
                 assert "www-authenticate" not in response.headers
                 field = page.locator('input[name="password"]')
