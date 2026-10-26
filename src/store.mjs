@@ -66,7 +66,7 @@ export class BrokerStore {
   }
   migrate() {
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 3) throw new Error('Unsupported database schema version.');
+    if (version > 4) throw new Error('Unsupported database schema version.');
     this.db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, principal TEXT NOT NULL, adapter TEXT NOT NULL, instance TEXT NOT NULL,

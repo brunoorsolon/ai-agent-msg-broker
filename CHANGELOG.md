@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 (source preparation; publish separately)
+
+- Add native URL-only enrollment requests with administrator approve/deny/revoke
+  in the broker's built-in form-login UI. No ticket or credential file transfer.
+- Configure administrator password through PSST_ADMIN_PASSWORD; optionally fix
+  HTTPS origin with PSST_PUBLIC_ORIGIN. No default password or HTTP Basic.
+- Persist candidate request/key before network effects; resume the same pending
+  request through GET-only status, including after restart. Startup never creates
+  requests. Approved installations retain independent native-session identities.
+- Protect UI sessions with Secure/HttpOnly/SameSite cookies, CSRF/origin checks,
+  login rate/KDF bounds and restart logout. Render untrusted labels safely.
+- Automatically snapshot the existing SQLite database privately before schema4;
+  preserve legacy credentials, ticket enrollment, pending mail and retry records.
+  Downgrade requires restoring that snapshot and loses subsequent writes.
+- Keep old authorization active during replacement; revoke explicitly after the
+  replacement works. Pending expiry24h, approved expiry90days, no silent renewal.
+- Add real TLS/form/helper integration and CI gates for actual Compose, rootless
+  Podman, Chromium form interaction, recreation and prior-image migration.
+  User-specific authenticated native hosts remain separate acceptance evidence.
+- Release image after publication: ghcr.io/matuto-ai/psst:0.4.0. This source
+  preparation does not publish an image, deploy a server or provision credentials.
+
 ## 0.3.0
 
 - Add opt-in scoped pairing: bounded single-use operator tickets, unique client

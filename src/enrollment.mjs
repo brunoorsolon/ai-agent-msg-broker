@@ -40,10 +40,11 @@ export class EnrollmentService {
         grant_hash TEXT PRIMARY KEY, enrollment_id TEXT UNIQUE NOT NULL, request TEXT NOT NULL,
         credential_id TEXT UNIQUE NOT NULL, token_hash TEXT UNIQUE NOT NULL, entry TEXT NOT NULL,
         result TEXT NOT NULL, expires INTEGER NOT NULL);
-        PRAGMA user_version=3;`);
+        PRAGMA user_version=${Math.max(3,store.db.prepare('PRAGMA user_version').get().user_version)};`);
     });
   }
   policy() { return validateEnrollmentPolicy(readPrivateJson(this.policyFile)); }
+  reservations() { return this.store.db.prepare('SELECT token_hash FROM enrolled_credentials').all().map(r=>({token_sha256:r.token_hash})); }
   credentials() {
     const p = this.policy(), now = this.store.clock();
     return this.store.db.prepare('SELECT entry FROM enrolled_credentials WHERE expires>?').all(now)
